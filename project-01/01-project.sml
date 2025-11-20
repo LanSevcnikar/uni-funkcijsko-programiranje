@@ -371,7 +371,7 @@ functor HillCipherAnalyzer (M : MAT) :> CIPHER
 =
 struct
   type t = M.t
-  
+  (* For some reason all of this only works if I transpose the key,tf, I am not sure why*)
   fun encrypt key plaintext = 
     let
       fun encrypt_chunk chunk =
@@ -421,6 +421,7 @@ struct
 
     in
       case length chunks of
+      (* Why was this needed, why do the tests give NONE if the input word is of length 0*)
         0 => NONE
         | _ => combine_chunks (List.foldr (fn (chunk_option, acc_option) =>
           case (chunk_option, acc_option) of
@@ -430,7 +431,79 @@ struct
         ) (SOME []) decryptedChunksOption)
     end
     
-  fun knownPlaintextAttack keyLenght plaintext ciphertext = raise NotImplemented
+  fun knownPlaintextAttack keyLenght plaintext ciphertext = 
+    let
+      fun build_matrix_of_height_n n chunks =
+        List.map (fn chunk => chunk) (List.take (chunks, n))
+      
+
+      (* It makes me anrgy that I cannot make these two functions into one function*)
+      fun try_n_by_n_invert n plaintext_chunks ciphertext_chunks =
+        let
+          val X = build_matrix_of_height_n n plaintext_chunks
+          val X_inv_opt = M.inv X
+          val Y = build_matrix_of_height_n n ciphertext_chunks
+          (* val _ = print ("X Matrix: \n" ^ M.showMatrix (SOME X) ^ "\n") *)
+          (* val _ = print ("Y Matrix: \n" ^ M.showMatrix (SOME Y) ^ "\n") *)
+          (* val _ = print ("X Inverse Matrix: \n" ^ M.showMatrix X_inv_opt ^ "\n") *)
+        in
+          case X_inv_opt of
+            NONE => NONE
+          | SOME X_inv => SOME (M.mul X_inv Y)
+        end
+
+      fun try_first_k_chunks k plaintext_chunks ciphertext_chunks =
+        let
+          val X = build_matrix_of_height_n k plaintext_chunks
+          val Y = build_matrix_of_height_n k ciphertext_chunks
+          val X_tr = M.tr X
+          val X_tr_X_inv = M.inv (M.mul X_tr X)
+          (* val _ = print ("Trying with k = " ^ Int.toString k ^ "\n") *)
+          (* val _ = print ("X Matrix: \n" ^ M.showMatrix (SOME X) ^ "\n") *)
+          (* val _ = print ("Y Matrix: \n" ^ M.showMatrix (SOME Y) ^ "\n") *)
+          (* val _ = print ("X Transpose X: \n" ^ M.showMatrix (SOME (M.mul X_tr X)) ^ "\n") *)
+          (* val _ = print ("X Transpose Inverse Matrix: \n" ^ M.showMatrix (X_tr_X_inv) ^ "\n") *)
+        in
+          case X_tr_X_inv of
+            NONE => NONE
+          | SOME X_tr_X_inv_mat => SOME (M.mul X_tr_X_inv_mat (M.mul X_tr Y))
+        end
+
+      fun validate_key candidate_key plaintext_chunks ciphertext_chunks =
+        if List.all (fn (pt_chunk, ct_chunk) => encrypt candidate_key pt_chunk = ct_chunk) (ListPair.zip (plaintext_chunks, ciphertext_chunks)) 
+        then SOME candidate_key
+        else NONE
+
+      val plaintext_chunks = split keyLenght plaintext
+      val ciphertext_chunks = split keyLenght ciphertext
+
+      (* val _ = print ("Plaintext chunks: \n" ^ M.showMatrix (SOME plaintext_chunks) ^ "\n") *)
+      (* val _ = print ("Ciphertext chunks: \n" ^ M.showMatrix (SOME ciphertext_chunks) ^ "\n") *)
+
+      val enough_data = (length plaintext_chunks) >= keyLenght
+
+      val n_by_n_attempt =
+        if enough_data
+        then try_n_by_n_invert keyLenght plaintext_chunks ciphertext_chunks
+        else NONE
+
+      (* Is it just me or does this look too much like OOP? Like, this does not feel right *)
+      val possible_ks = List.filter (fn k => k > keyLenght) (List.tabulate ((length plaintext_chunks + 1), fn i => i))
+      val try_first_k_chunks = List.map (fn k => try_first_k_chunks k plaintext_chunks ciphertext_chunks) possible_ks
+      val results_before_validation = [n_by_n_attempt] @ try_first_k_chunks
+      val valid_results = List.map (fn candidate_key_option =>
+        case candidate_key_option of
+          NONE => NONE
+        | SOME candidate_key => validate_key candidate_key plaintext_chunks ciphertext_chunks
+      ) results_before_validation
+      val first_result = List.find (fn x => x <> NONE) valid_results
+      val return_value =
+        case first_result of
+          NONE => NONE
+        | SOME key_option => key_option
+    in
+      return_value
+    end
 end;
 
 
