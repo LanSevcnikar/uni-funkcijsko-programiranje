@@ -16,27 +16,22 @@ exception NotImplemented;
 
 (* Basically just takes n sized chunks and joins them together, super basic *)
 fun split n xs =
-  let
-    fun first_n (0, _) = []
-      | first_n (_, []) = []
-      | first_n (n, x::xs) = x :: first_n (n-1, xs)
-    fun all_but_first_n (0, xs) = xs
-      | all_but_first_n (_, []) = []
-      | all_but_first_n (n, _::xs) = all_but_first_n (n-1, xs)
+    let
+        fun takeN (0, lst, acc) = (rev acc, lst)
+          | takeN (_, [], acc) = (rev acc, [])
+          | takeN (k, x::xs, acc) = takeN (k-1, xs, x::acc)
 
-    fun helper xs =
-      if length xs < n then []
-      else
-        let
-          val block = first_n (n, xs)
-          val rest = all_but_first_n (n, xs)
-        in
-          block :: helper rest
-        end
-  in
-    if n <= 0 then []
-    else helper xs
-  end;
+        fun helper [] = []
+          | helper lst =
+              let
+                  val (block, rest) = takeN (n, lst, [])
+              in
+                  block :: helper rest
+              end
+    in
+      (* This should be faster because length is most likely O(n) *)
+        if n <= 0 then [] else List.filter (fn x => length x = n) (helper xs)
+    end;
 
 (* Taken directly from the pseudocode
 function extended_gcd(a, b)
