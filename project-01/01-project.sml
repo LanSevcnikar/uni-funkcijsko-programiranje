@@ -438,37 +438,33 @@ struct
       
 
       (* It makes me anrgy that I cannot make these two functions into one function*)
+      (* This function just tries the square, again, I wish I could do it inside of the next function *)
       fun try_n_by_n_invert n plaintext_chunks ciphertext_chunks =
         let
           val X = build_matrix_of_height_n n plaintext_chunks
           val X_inv_opt = M.inv X
           val Y = build_matrix_of_height_n n ciphertext_chunks
-          (* val _ = print ("X Matrix: \n" ^ M.showMatrix (SOME X) ^ "\n") *)
-          (* val _ = print ("Y Matrix: \n" ^ M.showMatrix (SOME Y) ^ "\n") *)
-          (* val _ = print ("X Inverse Matrix: \n" ^ M.showMatrix X_inv_opt ^ "\n") *)
         in
           case X_inv_opt of
             NONE => NONE
           | SOME X_inv => SOME (M.mul X_inv Y)
         end
 
+      (* I feel like this is not very quick because of the fact that I do not append but rather I redo everything *)
+      (* All of this is exactly as done in the explenation given *)
       fun try_first_k_chunks k plaintext_chunks ciphertext_chunks =
         let
           val X = build_matrix_of_height_n k plaintext_chunks
           val Y = build_matrix_of_height_n k ciphertext_chunks
           val X_tr = M.tr X
           val X_tr_X_inv = M.inv (M.mul X_tr X)
-          (* val _ = print ("Trying with k = " ^ Int.toString k ^ "\n") *)
-          (* val _ = print ("X Matrix: \n" ^ M.showMatrix (SOME X) ^ "\n") *)
-          (* val _ = print ("Y Matrix: \n" ^ M.showMatrix (SOME Y) ^ "\n") *)
-          (* val _ = print ("X Transpose X: \n" ^ M.showMatrix (SOME (M.mul X_tr X)) ^ "\n") *)
-          (* val _ = print ("X Transpose Inverse Matrix: \n" ^ M.showMatrix (X_tr_X_inv) ^ "\n") *)
         in
           case X_tr_X_inv of
             NONE => NONE
           | SOME X_tr_X_inv_mat => SOME (M.mul X_tr_X_inv_mat (M.mul X_tr Y))
         end
 
+      (* Checks if the key worked *)
       fun validate_key candidate_key plaintext_chunks ciphertext_chunks =
         if List.all (fn (pt_chunk, ct_chunk) => encrypt candidate_key pt_chunk = ct_chunk) (ListPair.zip (plaintext_chunks, ciphertext_chunks)) 
         then SOME candidate_key
@@ -477,34 +473,46 @@ struct
       val plaintext_chunks = split keyLenght plaintext
       val ciphertext_chunks = split keyLenght ciphertext
 
-      (* val _ = print ("Plaintext chunks: \n" ^ M.showMatrix (SOME plaintext_chunks) ^ "\n") *)
-      (* val _ = print ("Ciphertext chunks: \n" ^ M.showMatrix (SOME ciphertext_chunks) ^ "\n") *)
-
+      (* The enough data here is to check regarding the key length, the addition of is_known_text_longer_than_ciphertext is added later, ergo looks weird *)
+      val is_known_text_longer_than_ciphertext = (length (plaintext)) > (length (List.concat ciphertext_chunks))
       val enough_data = (length plaintext_chunks) >= keyLenght
-
-      val n_by_n_attempt =
-        if enough_data
-        then try_n_by_n_invert keyLenght plaintext_chunks ciphertext_chunks
-        else NONE
-
-      (* Is it just me or does this look too much like OOP? Like, this does not feel right *)
-      val possible_ks = List.filter (fn k => k > keyLenght) (List.tabulate ((length plaintext_chunks + 1), fn i => i))
-      val try_first_k_chunks = List.map (fn k => try_first_k_chunks k plaintext_chunks ciphertext_chunks) possible_ks
-      val results_before_validation = [n_by_n_attempt] @ try_first_k_chunks
-      val valid_results = List.map (fn candidate_key_option =>
-        case candidate_key_option of
-          NONE => NONE
-        | SOME candidate_key => validate_key candidate_key plaintext_chunks ciphertext_chunks
-      ) results_before_validation
-      val first_result = List.find (fn x => x <> NONE) valid_results
+      (* Let us take a moment to look at this. Looking at the description of the problem, there is a small implication
+       that the known plaintext is longer than the ciphertext. Note that this does not make sense to me. Now, even more, it should be longer than the
+       cypher text after getting cut. I do understand to some extent but when I looked at test4 of knownPlaintextAttack
+       I got the wrong response without this here. Looking at it closer, I feel like it is likely that this was the problem because I was able to decipher the rest *)
+    
       val return_value =
-        case first_result of
-          NONE => NONE
-        | SOME key_option => key_option
+        case enough_data andalso not is_known_text_longer_than_ciphertext of
+          false => NONE
+        | true => 
+          let
+            val n_by_n_attempt =
+              if enough_data andalso not is_known_text_longer_than_ciphertext
+              then try_n_by_n_invert keyLenght plaintext_chunks ciphertext_chunks
+              else NONE
+
+            (* Is it just me or does this look too much like OOP? Like, this does not feel right *)
+            val possible_ks = List.filter (fn k => k > keyLenght) (List.tabulate ((length plaintext_chunks + 1), fn i => i))
+            val try_first_k_chunks = List.map (fn k => try_first_k_chunks k plaintext_chunks ciphertext_chunks) possible_ks
+            val results_before_validation = [n_by_n_attempt] @ try_first_k_chunks
+            val valid_results = List.map (fn candidate_key_option =>
+              case candidate_key_option of
+                NONE => NONE
+              | SOME candidate_key => validate_key candidate_key plaintext_chunks ciphertext_chunks
+            ) results_before_validation
+            val first_result = List.find (fn x => x <> NONE) valid_results
+            val return_value_temp =
+              case first_result of
+                NONE => NONE
+              | SOME key_option => key_option
+        in
+          return_value_temp
+        end
     in
       return_value
     end
 end;
+
 
 
 structure Trie :> 
@@ -521,9 +529,42 @@ struct
 
   val empty = [] : ''a dict
 
-  fun insert w dict = raise NotImplemented
-  fun lookup w dict = raise NotImplemented
+  fun insert w dict = 
+    let
+      fun insert_helper (wrd, dct) =
+        case (wrd, dct) of
+          ([], _) => dct (* Empty word, do nothing *)
+        | (x::xs, []) => [N (x, xs = [], insert_helper (xs, []))] (* No children, just add the word, we are in new teritory *)
+        | (x::xs, N (y, isWord, children) :: rest) => (* If we can move forward we move forward, if not we check next in node *)
+            if x = y then
+              let
+                val new_child = insert_helper (xs, children)
+                val new_node = N (y, isWord orelse xs = [], new_child)
+              in
+                new_node :: rest
+              end
+            else
+              N (y, isWord, children) :: insert_helper (wrd, rest)
+      in
+        insert_helper (w, dict)
+    end
+
+    (* This function does not need to be commented on, obvious what it does *)
+   fun lookup w dict =
+     let
+       fun lookup_helper ([], _) = false
+         | lookup_helper (x::xs, []) = false
+         | lookup_helper (x::xs, N(c, isW, children)::rest) =
+             if x = c then
+               if xs = [] then isW
+               else lookup_helper (xs, children)
+             else
+               lookup_helper (x::xs, rest)
+     in
+       lookup_helper (w, dict)
+     end
 end;
+
 
 signature HILLCIPHER =
 sig
@@ -552,8 +593,19 @@ structure Ring = Ring (val n = alphabetSize)
 structure Matrix = Mat (Ring)
 structure Cipher = HillCipherAnalyzer (Matrix)
 
-fun encode txt = raise NotImplemented
-fun decode code = raise NotImplemented
+fun encode txt = 
+  let
+    fun index_of (c, d) =
+      case (c, d) of
+        (_, []) => raise Fail "Element not found"
+        | (chr, l::lst) => if chr = l then 0 else 1 + index_of (chr, lst)
+
+    fun char_to_int c = index_of (c, alphabet)
+  in
+    List.map char_to_int (String.explode txt)
+  end
+
+fun decode code = String.implode (List.map (fn i => List.nth (alphabet, i)) (code))
 
 local
   fun parseWords filename =
@@ -569,10 +621,187 @@ local
 
   val dictionary = List.foldl (fn (w, d) => Trie.insert w d) Trie.empty (List.map String.explode (parseWords "hamlet.txt")) handle NotImplemented => Trie.empty
 in
-  fun encrypt key plaintext = raise NotImplemented
-  fun decrypt key ciphertext = raise NotImplemented
-  fun knownPlaintextAttack keyLenght plaintext ciphertext = raise NotImplemented
-  fun ciphertextOnlyAttack keyLenght ciphertext = raise NotImplemented
-  end
+  fun encrypt key plaintext = 
+    let
+      val plaintext_encoded = encode plaintext
+      val ciphertext_encoded = Cipher.encrypt key plaintext_encoded
+      val ciphertext = decode ciphertext_encoded
+    in
+      ciphertext
+    end
+  fun decrypt key ciphertext = 
+    let
+      val ciphertext_encoded = encode ciphertext
+      val plaintext_encoded_option = Cipher.decrypt key ciphertext_encoded
+    in
+      case plaintext_encoded_option of
+        NONE => NONE
+      | SOME plaintext_encoded =>
+          SOME (decode plaintext_encoded)
+    end
+  fun knownPlaintextAttack keyLength plaintext ciphertext = 
+    let
+
+
+      val plaintext_encoded = encode plaintext
+      val ciphertext_encoded = encode ciphertext
+      val key_option = Cipher.knownPlaintextAttack keyLength plaintext_encoded ciphertext_encoded
+    in
+      case key_option of
+        NONE => NONE
+      | SOME key =>
+          SOME key
+    end
+
+  fun ciphertextOnlyAttack keyLength ciphertext = 
+    let
+      val ciphertext_encoded = encode ciphertext
+
+      (* Generate all candidate n x n matrices over the ring *)
+      fun generate_candidates n =
+        let
+          fun exp x p = 
+            case p of
+              0 => 1
+            | _ => x * exp x (p - 1)
+
+          fun number_to_flattened_matrix num =
+            let
+              fun helper(idx, n, lst) =
+                case idx of
+                  0 => lst
+                | _ =>
+                    let
+                      val remainder = n mod alphabetSize
+                      val quotient = n div alphabetSize
+                    in
+                      helper (idx - 1, quotient, remainder :: lst)
+                    end
+            in
+              helper (n * n, num, [])
+            end
+
+          fun flattened_matrix_to_matrix flat =
+            let
+              fun build_rows ([], _) = []
+                | build_rows (lst, 0) = []
+                | build_rows (lst, r) =
+                    let
+                      val row = List.take (lst, n)
+                      val rest = List.drop (lst, n)
+                    in
+                      row :: build_rows (rest, r - 1)
+                    end
+            in
+              build_rows (flat, n)
+            end
+          
+          val number_of_all_matrices = exp alphabetSize (exp keyLength 2)
+          val all_matrix_encodings = List.tabulate (number_of_all_matrices, fn i => i)
+          val all_flattened_matrices = List.map number_to_flattened_matrix all_matrix_encodings
+          val all_matrices = List.map flattened_matrix_to_matrix all_flattened_matrices
+        in
+          all_matrices
+        end
+
+      val candidates = generate_candidates keyLength
+      val invertible_candidates = List.filter (fn m => case Matrix.inv m of NONE => false | SOME _ => true) candidates
+      val decrypted_candidates = List.map (fn candidate_key => (decrypt candidate_key ciphertext, candidate_key)) invertible_candidates
+
+      fun count_number_of_valid_words plaintext =
+        let
+          val words = String.tokens (not o Char.isAlpha) plaintext
+          val valid_words = List.filter (fn w => Trie.lookup (String.explode (String.map Char.toLower w)) dictionary) words
+          (* print out plaintext and number of valid words *)
+          (* val _ = print (plaintext^ " | " ^ Int.toString (length valid_words) ^ "\n") *)
+        in
+          length valid_words
+        end
+
+
+      
+      val scored_candidates = List.map (fn (decrypted_option, candidate_key) =>
+        case decrypted_option of
+          NONE => (0, candidate_key)
+        | SOME decrypted_plaintext => (count_number_of_valid_words decrypted_plaintext, candidate_key)
+      ) decrypted_candidates
+
+
+
+      val best_candidate = List.foldl (fn ((score, key), (best_score, best_key)) =>
+        if score > best_score then (score, key) else (best_score, best_key)
+      ) (0, hd invertible_candidates) scored_candidates 
+
+      val (best_score, best_key) = best_candidate
+
+    in
+      if best_score = 0 then NONE
+      else SOME best_key
+    end
+
+end
 end;
 
+(* 
+TEST 1
+
+val alphabet = "\n !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+val possible_key_sizes = [1,2,3,4,5,6,7,8,9,10]
+val x99 = String.substring ("#include<stdlib.h>\n#include<stdio.h>\n#include<unistd.h>\n#include<sys/types.h>\n#include<sys/wait.h>\n", 0, 96)
+val y99 = String.substring ("Y,}*a@F^d'=1$e:g!n&x:L}U9(y8on+x+a:N2ym0 mQn+o#a)aaO4l+<Y,}*a@F^P#q]/lJj.\"oE./].Ff!HS=af~|sakH#jRWV", 0, 96)
+
+(*  try to find a solution for each size *)
+structure H2 = HillCipher(val alphabet = alphabet);
+val results = List.map(fn key_size => H2.knownPlaintextAttack key_size x99 y99) possible_key_sizes
+val _ = List.map (fn res => case res of
+    NONE => print "No key found\n"
+  | SOME key_matrix => print (H2.Matrix.showMatrix (SOME key_matrix) ^ "\n")) results;
+
+No key found
+No key found
+No key found
+No key found
+No key found
+No key found
+No key found
+[[19, 14, 14, 76, 16, 7, 5, 18]
+[23, 15, 69, 65, 89, 38, 43, 91]
+[11, 0, 24, 39, 75, 14, 46, 19]
+[88, 57, 61, 56, 25, 40, 41, 8]
+[84, 2, 51, 93, 87, 32, 39, 52]
+[92, 52, 45, 45, 92, 76, 66, 56]
+[7, 37, 41, 79, 56, 75, 16, 14]
+[30, 8, 9, 65, 46, 36, 36, 35]]
+No key found
+No key found
+*)
+
+(*
+TEST 2
+
+val alphabet = " abcdefghijklmnopqrstuvwxyz"
+val keyLength = 2 (* or 1 *)
+val ciphertext = "ulglf etn ytc n pkoozawrgspqnbn i ajn obgsimpktr pn qvbrhaqfhnebxijtmiy opnrbaysdiwibrqfaiebimgsrivniimtocjfbrhnjvghdijshajthrj trujpqii pirmiy opbrhaiidyebghqqgrbrqftrjyxocfrajrhxkatrucimeigsquyjjmy opermeebhckasiavimhnoxgwavebolibgsyaimsissclzbkvbdras fxxlssmigkeizewtdukqcawr pn aimmbsjktxl wiebimhnjtlxtrtgf zutrucimhnatljavjtlxtricc cisstrjyxoimpkaib nrqutr pwrlcjfsif n mto w ibujavjkkzhudfhryshtkzpvtr pgiqtihsihweizeyaimeitrdycao csbraxbroowiyttrtgc hufmraaibstrujpqiiwxoofxczjdytwrobfmi yjgjfnnttzespikihnimgsdauikzlceryfgsimj gi xumhubrgspverpktr pwrlcjfsidibfbrhnimgsqerbgsjkkzimlj"
+
+
+structure H2 = HillCipher(val alphabet = alphabet);
+val result = H2.ciphertextOnlyAttack keyLength ciphertext
+val decrypted_option = 
+  case result of
+    NONE => NONE
+  | SOME key_matrix => H2.decrypt key_matrix ciphertext
+val _ = 
+  case decrypted_option of
+    NONE => print "No valid decryption found\n"
+  | SOME decrypted_text => print ("Decrypted text: \n" ^ decrypted_text ^ "\n")
+
+(* For n = 1 *)
+Decrypted text: 
+ulplf wke gkc e ybooqjnrpayhete i jse otpaivybkr ye hdtrzjhfzewtxiskvig oyertjgaminitrhfjiwtivparideiivkocsftrzesdpzmisazjskzrs krusyhii yirvig oytrzjiimgwtpzhhprtrhfkrsgxocfrjsrzxbjkrucivwipahugssvg oywrvwwtzcbjaijdivzeoxpnjdwtolitpagjivaiaaclqtbdtmrja fxxlaavipbwiqwnkmubhcjnr ye jivvtasbkxl niwtivzesklxkrkpf qukrucivzejklsjdsklxkricc ciaakrsgxoivybjit erhukr ynrlcsfaif e vko n itusjdsbbqzumfzrgazkbqydkr ypihkizaiznwiqwgjivwikrmgcjo catrjxtroonigkkrkpc zufvrjjitakrusyhiinxoofxcqsmgknrotfvi gspsfeekkqwayibizeivpamjuibqlcwrgfpaivs pi xuvzutrpaydwrybkr ynrlcsfaimitftrzeivpahwrtpasbbqivls
+
+(* For n = 2 *)
+Decrypted text: 
+from fairest creatures we desire increase that thereby beauty s rose might never die but as the riper should by time decease his tender heir might bear his memory but thou contracted to thine own bright eyes feed st thy light s flame with self substantial fuel making a famine where abundance lies thy self thy foe to thy sweet self too cruel thou that art now the world s fresh ornament and only herald to the gaudy spring within thine own bud buriest thy content and tender churl mak st waste in niggarding pity the world or else this glutton be to eat the world s due by the grave and thee
+
+This text takes about half a minute to decipher
+*)
