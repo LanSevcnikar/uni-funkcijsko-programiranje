@@ -244,7 +244,6 @@ val test9 = C.knownPlaintextAttack 3 [1,2,3,4,5,6,7,8,9,1,1,1] [1,6,3,4,5,6,7,4,
 val test10 = C.knownPlaintextAttack 3 [1,2,3,4,5,6,7,8,9,1,1,1,1,0,0] [1,6,3,4,5,6,7,4,9,1,3,1,1,0,0] = SOME [[1,0,0],[0,3,0],[0,0,1]] handle NotImplemented => false;
 val _ = (all_tests := !all_tests @ [test1, test2, test3, test4, test5, test6, test7, test8, test9, test10]);
 
-
 (* ==================== PART 4 ==================== *)
 
 (* REMOVE THE SIGNATURE AND TEST IT MANUALLY *)

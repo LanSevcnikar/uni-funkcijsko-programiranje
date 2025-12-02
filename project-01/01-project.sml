@@ -16,22 +16,27 @@ exception NotImplemented;
 
 (* Basically just takes n sized chunks and joins them together, super basic *)
 fun split n xs =
-    let
-        fun takeN (0, lst, acc) = (rev acc, lst)
-          | takeN (_, [], acc) = (rev acc, [])
-          | takeN (k, x::xs, acc) = takeN (k-1, xs, x::acc)
+  let
+    fun first_n (0, _) = []
+      | first_n (_, []) = []
+      | first_n (n, x::xs) = x :: first_n (n-1, xs)
+    fun all_but_first_n (0, xs) = xs
+      | all_but_first_n (_, []) = []
+      | all_but_first_n (n, _::xs) = all_but_first_n (n-1, xs)
 
-        fun helper [] = []
-          | helper lst =
-              let
-                  val (block, rest) = takeN (n, lst, [])
-              in
-                  block :: helper rest
-              end
-    in
-      (* This should be faster because length is most likely O(n) *)
-        if n <= 0 then [] else List.filter (fn x => length x = n) (helper xs)
-    end;
+    fun helper xs =
+      if length xs < n then []
+      else
+        let
+          val block = first_n (n, xs)
+          val rest = all_but_first_n (n, xs)
+        in
+          block :: helper rest
+        end
+  in
+    if n <= 0 then []
+    else helper xs
+  end;
 
 (* Taken directly from the pseudocode
 function extended_gcd(a, b)
@@ -447,16 +452,41 @@ struct
 
       (* I feel like this is not very quick because of the fact that I do not append but rather I redo everything *)
       (* All of this is exactly as done in the explenation given *)
-      fun try_first_k_chunks k plaintext_chunks ciphertext_chunks =
+
+      fun build_try_first_k_chunks k plaintext_chunks ciphertext_chunks =
         let
+          fun try_using_X_and_Y X Y =
+            let
+              val X_tr = M.tr X
+              val X_tr_X_inv = M.inv (M.mul X_tr X)
+            in
+              case X_tr_X_inv of
+                NONE => NONE
+              | SOME X_tr_X_inv_mat => SOME (M.mul X_tr_X_inv_mat (M.mul X_tr Y))
+            end
+
+          fun helper X Y remaining_plaintext_chunks remaining_ciphertext_chunks =
+            let
+              val attempt = try_using_X_and_Y X Y
+            in
+              case (remaining_plaintext_chunks, remaining_ciphertext_chunks) of
+                ([], _) => [attempt]
+              | (_, []) => [attempt]
+              | (pt_chunk::pt_rest, ct_chunk::ct_rest) =>
+                  let
+                    val new_X = X @ [pt_chunk]
+                    val new_Y = Y @ [ct_chunk]
+                  in
+                    [attempt] @ (helper new_X new_Y pt_rest ct_rest)
+                  end
+            end
+
           val X = build_matrix_of_height_n k plaintext_chunks
           val Y = build_matrix_of_height_n k ciphertext_chunks
-          val X_tr = M.tr X
-          val X_tr_X_inv = M.inv (M.mul X_tr X)
+          val all_but_first_k_plaintext_chunks = List.drop (plaintext_chunks, k)
+          val all_but_first_k_ciphertext_chunks = List.drop (ciphertext_chunks, k)
         in
-          case X_tr_X_inv of
-            NONE => NONE
-          | SOME X_tr_X_inv_mat => SOME (M.mul X_tr_X_inv_mat (M.mul X_tr Y))
+          helper X Y all_but_first_k_plaintext_chunks all_but_first_k_ciphertext_chunks
         end
 
       (* Checks if the key worked *)
@@ -481,14 +511,26 @@ struct
           false => NONE
         | true => 
           let
+            (* A general comment about the code
+              - The reason it is so messy is because it was too slow on one decypher attempt and this should speed it up, no longer building every k individual;ly but rather building them all at once using concat
+              - Note that this makes the code ugly
+              - it does the n by n attempt 
+              - then it creates all of the attempts for larger than that using rec
+              - then it validates all of them
+              - then it filters
+              - it returns the first valid one            
+             *)
             val n_by_n_attempt =
               if enough_data andalso not is_known_text_longer_than_ciphertext
               then try_n_by_n_invert keyLenght plaintext_chunks ciphertext_chunks
               else NONE
 
             (* Is it just me or does this look too much like OOP? Like, this does not feel right *)
-            val possible_ks = List.filter (fn k => k > keyLenght) (List.tabulate ((length plaintext_chunks + 1), fn i => i))
-            val try_first_k_chunks = List.map (fn k => try_first_k_chunks k plaintext_chunks ciphertext_chunks) possible_ks
+            val try_first_k_chunks = 
+              case length plaintext_chunks > keyLenght of
+                false => [] 
+              | true => build_try_first_k_chunks (keyLenght + 1) plaintext_chunks ciphertext_chunks
+
             val results_before_validation = [n_by_n_attempt] @ try_first_k_chunks
             val valid_results = List.map (fn candidate_key_option =>
               case candidate_key_option of

@@ -38,3 +38,13 @@
   (if (or (null? lst1) (null? lst2))
       '()
       (cons (list (car lst1) (car lst2)) (zip (cdr lst1) (cdr lst2)))))
+
+(define (range a b step)
+  (if (>= a b)
+      '()
+      (cons a (range (+ a step) b step))))
+
+(define (is-palindrome lst)
+  #f)
+(define (is-square n)
+  #f)
