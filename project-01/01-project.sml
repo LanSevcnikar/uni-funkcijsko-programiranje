@@ -16,27 +16,22 @@ exception NotImplemented;
 
 (* Basically just takes n sized chunks and joins them together, super basic *)
 fun split n xs =
-  let
-    fun first_n (0, _) = []
-      | first_n (_, []) = []
-      | first_n (n, x::xs) = x :: first_n (n-1, xs)
-    fun all_but_first_n (0, xs) = xs
-      | all_but_first_n (_, []) = []
-      | all_but_first_n (n, _::xs) = all_but_first_n (n-1, xs)
+    let
+        fun takeN (0, lst, acc) = (rev acc, lst)
+          | takeN (_, [], acc) = (rev acc, [])
+          | takeN (k, x::xs, acc) = takeN (k-1, xs, x::acc)
 
-    fun helper xs =
-      if length xs < n then []
-      else
-        let
-          val block = first_n (n, xs)
-          val rest = all_but_first_n (n, xs)
-        in
-          block :: helper rest
-        end
-  in
-    if n <= 0 then []
-    else helper xs
-  end;
+        fun helper [] = []
+          | helper lst =
+              let
+                  val (block, rest) = takeN (n, lst, [])
+              in
+                  block :: helper rest
+              end
+    in
+      (* This should be faster because length is most likely O(n) *)
+        if n <= 0 then [] else List.filter (fn x => length x = n) (helper xs)
+    end;
 
 (* Taken directly from the pseudocode
 function extended_gcd(a, b)
@@ -118,8 +113,8 @@ sig
   val id : int -> t list list
   val join : t list list -> t list list -> t list list
   val inv : t list list -> t list list option
-  val showMatrix : t list list option -> string
-  val showVec : t list option -> string
+  (* val showMatrix : t list list option -> string *)
+  (* val showVec : t list option -> string *)
 end;
 
 functor Mat (R : RING) :> MAT where type t = R.t =
@@ -180,7 +175,7 @@ struct
     List.tabulate (n, fn x =>
       List.tabulate (n, fn y => if x = y then R.one else R.zero))
 
-  fun showMatrix NONE = "NONE"
+  (* fun showMatrix NONE = "NONE"
     | showMatrix (SOME m) =
         let
           fun showRow row =
@@ -191,7 +186,7 @@ struct
 
   fun showVec NONE = "NONE"
   | showVec (SOME v) =
-      String.concatWith " " (List.map R.toString v)
+      String.concatWith " " (List.map R.toString v) *)
 
 
   (*This took like 4 hours, if I ever learn that this was done at practice, I am finna cry*)
@@ -394,10 +389,9 @@ struct
 
   fun decrypt key ciphertext = 
     let
-      fun decrypt_chunk chunk =
+      fun decrypt_chunk (chunk, key_inv_option) =
         let
           val chunk_matrix = List.map (fn x => [x]) chunk
-          val key_inv_option = M.inv (M.tr key)
         in
           case key_inv_option of
             NONE => NONE
@@ -412,8 +406,9 @@ struct
 
         
       val n = length key
+      val key_inv_option = M.inv (M.tr key) (* Best not to compute it each time again *)
       val chunks = split n ciphertext
-      val decryptedChunksOption = List.map decrypt_chunk chunks
+      val decryptedChunksOption = List.map (fn chunk => decrypt_chunk (chunk, key_inv_option)) chunks
 
       fun combine_chunks NONE = NONE
         | combine_chunks (SOME chunks) =
@@ -641,8 +636,6 @@ in
     end
   fun knownPlaintextAttack keyLength plaintext ciphertext = 
     let
-
-
       val plaintext_encoded = encode plaintext
       val ciphertext_encoded = encode ciphertext
       val key_option = Cipher.knownPlaintextAttack keyLength plaintext_encoded ciphertext_encoded
@@ -659,6 +652,8 @@ in
 
       (* Generate all candidate n x n matrices over the ring *)
       fun generate_candidates n =
+      (* Each matrix is represented as a number. This is then transformed into a matrix representation *)
+      (* I am not sure if there exists a better way, this israther slow and generating 2x2 matricies takes about 2 seconds on my machine *)
         let
           fun exp x p = 
             case p of
@@ -708,6 +703,8 @@ in
       val invertible_candidates = List.filter (fn m => case Matrix.inv m of NONE => false | SOME _ => true) candidates
       val decrypted_candidates = List.map (fn candidate_key => (decrypt candidate_key ciphertext, candidate_key)) invertible_candidates
 
+      (* Note that this is not super general *)
+      (* https://smlfamily.github.io/Basis/string.html#SIG:STRING.tokens:VAL I hope this is allowed *)
       fun count_number_of_valid_words plaintext =
         let
           val words = String.tokens (not o Char.isAlpha) plaintext
@@ -731,6 +728,8 @@ in
       val best_candidate = List.foldl (fn ((score, key), (best_score, best_key)) =>
         if score > best_score then (score, key) else (best_score, best_key)
       ) (0, hd invertible_candidates) scored_candidates 
+
+      (* As long as the best is 0, we do not care about the key, so we can use an arbitrary key *)
 
       val (best_score, best_key) = best_candidate
 
