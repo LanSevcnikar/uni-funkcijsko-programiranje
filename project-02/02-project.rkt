@@ -100,155 +100,131 @@
 ;; Find free variables in an expression
 (define (find-free-vars expr bound-vars)
 (match expr
-    [
-        (valof name) 
-        (if (member name bound-vars) '() (list name))]
+    [ (trigger e)       (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (head e)          (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (tail e)          (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (~ e)             (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (?int e)          (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (?bool e)         (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (?.. e)           (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (?seq e)          (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (?empty e)        (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (?exception e)    (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (?all e)          (find-free-vars e bound-vars) ] ;; just go down, no magic
+    [ (?any e)          (find-free-vars e bound-vars) ] ;; just go down, no magic
+    
+    
+    [ (.. e1 e2)    (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars)) ] ;; just go down, no magic, but 2 times
+    [ (add e1 e2)   (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars)) ] ;; just go down, no magic, but 2 times
+    [ (mul e1 e2)   (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars)) ] ;; just go down, no magic, but 2 times
+    [ (?leq e1 e2)  (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars)) ] ;; just go down, no magic, but 2 times
+    [ (?= e1 e2)    (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars)) ] ;; just go down, no magic, but 2 times
+    
+    [ 
+        (handle e1 e2 e3)
+        (append (find-free-vars e1 bound-vars)
+                (find-free-vars e2 bound-vars)
+                (find-free-vars e3 bound-vars))
+    ] ;; just go down, no magic, but 3 times
+    
+    [ 
+        (if-then-else cond e1 e2)
+        (append (find-free-vars cond bound-vars)
+                (find-free-vars e1 bound-vars)
+                (find-free-vars e2 bound-vars))
+    ] ;; just go down, no magic, but 3 times
+    
+    ;; If the variable that we call is in the bound variables, it is not free (the arg will be used)
+    ;; Otherwise add it to the list of free variables
+    [ (valof name) (if (member name bound-vars) '() (list name)) ]
+
     [
         (vars name val body)
         (let* 
             (
-                [val-vars (find-free-vars val bound-vars)]
-                [new-bound (if (list? name) (append name bound-vars) (cons name bound-vars))]
-                [body-vars (find-free-vars body new-bound)])
-            (append val-vars body-vars)
+                [val-vars 
+                    (if (list? val)
+                        (apply append (map (lambda (v) (find-free-vars v bound-vars)) val))
+                        (find-free-vars val bound-vars))
+                ] ;; If val list of es, then find free in each, otherwise find free in val
+                
+                [new-bound (if 
+                    (list? name) 
+                    (append name bound-vars) 
+                    (cons name bound-vars))
+                ] ;; If name list of vars, then append, otherwise cons
+                [body-vars (find-free-vars body new-bound)] ;; Find free in body
+            )
+            (append val-vars body-vars) ;; Append val-vars and body-vars
         )
     ]
-    [
+
+    ;; For all 3 of these it is basically the same thing
+    ;; Make sure that names of functions are moving correctly
+    ;; If there are args, add them to the bound variables
+    [ 
         (fun fname args body)
         (let 
             ([new-bound (append args (if (string=? fname "") bound-vars (cons fname bound-vars)))])
             (find-free-vars body new-bound)
         )
     ]
-    [
+    [ 
         (proc pname body)
         (let 
             ([new-bound (if (string=? pname "") bound-vars (cons pname bound-vars))])
             (find-free-vars body new-bound)
         )
     ]
-    [  
+    [ 
         (call f args)
         (append (find-free-vars f bound-vars)
                 (apply append (map (lambda (arg) (find-free-vars arg bound-vars)) args))
         )
     ]
-    [
-        (.. e1 e2)
-        (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars))
-    ]
-    [
-        (trigger e) 
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (handle e1 e2 e3)
-        (append (find-free-vars e1 bound-vars)
-                (find-free-vars e2 bound-vars)
-                (find-free-vars e3 bound-vars))
-    ]
-    [
-        (if-then-else cond e1 e2)
-        (append (find-free-vars cond bound-vars)
-                (find-free-vars e1 bound-vars)
-                (find-free-vars e2 bound-vars))
-    ]
-    [
-        (add e1 e2)
-        (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars))
-    ]
-    [
-        (mul e1 e2)
-        (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars))
-    ]
-    [
-        (?leq e1 e2)
-        (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars))
-    ]
-    [
-        (?= e1 e2)
-        (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars))
-    ]
-    [
-        (head e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (tail e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (~ e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (?int e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (?bool e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (?.. e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (?seq e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (?empty e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (?exception e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (?all e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        (?any e)
-        (find-free-vars e bound-vars)
-    ]
-    [
-        else
-        '()
-    ]
+    [ else '() ]
 ))
 
 ;; Optimize closure environment - remove unnecessary variables
 (define (optimize-closure-env env fname f-args f-body current-env)
-  (let* ([bound (if (string=? fname "") f-args (cons fname f-args))]
-         [free-vars (remove-duplicates (find-free-vars f-body bound))])
-    ;; Check for undefined variables
-    (for-each
-     (lambda (var)
-       (unless (assoc var env)
-         (raise (triggered (exception "closure: undefined variable")))))
-     free-vars)
-    ;; Keep only necessary variables
-    (filter (lambda (binding) (member (car binding) free-vars)) env)))
+    (let* 
+        (
+            [bound (if (string=? fname "") f-args (cons fname f-args))]     ;; the variables that are bound in the function, add name of function if it is not empty string
+            [free-vars (remove-duplicates (find-free-vars f-body bound))]   ;; the variables that are free in the function body, remove duplicates 
+        )
+        ;; Check for undefined variables
+        ;; To be completely honest, I am not sure why I need to check this again, I would think that the lookup-env function would do that well enough
+        ;; But some of the public tests fail without this check
+        ;; It might be some compiling that is expected that is more than I would naturally assume from the definition of the work
+        ;; (For example, I dont think many interpreter languages care that much that quickly)
+        (for-each
+            (lambda (var)
+                (unless (assoc var env)
+                    (raise (triggered (exception "closure: undefined variable"))))
+            )
+            free-vars
+        )
+        ;; Keep only necessary variables
+        (filter (lambda (binding) (member (car binding) free-vars)) env)
+    )
+)
 
 
 ;; Extend environment with new bindings
-;; names and values have to be lists of the same length
+;; just add the first element of names and values to the environment and call as a pair and then continue
+;; Surprised the order was not reversed but as long as it works, I suppose it's fine
 (define (extend-env names values env)
   (if (null? names)
       env
       (cons (cons (car names) (car values))
             (extend-env (cdr names) (cdr values) env))))
 
-
-
 ;; Lookup variable in environment
+;; if the variable is not found, raise an exception
+;;
 (define (lookup-env name env)
     (let 
-        (
-            [binding (assoc name env)]
-        )
+        ( [binding (assoc name env)] ) ;; finds the first element of the list whose car is name
         (if binding
             (cdr binding)
             (triggered (exception "valof: undefined variable"))
