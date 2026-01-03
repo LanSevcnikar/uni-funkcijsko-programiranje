@@ -53,7 +53,7 @@
 
 ;; Errors
 (struct trigger (e) #:transparent)
-(struct triggered (exn) #:transparent) ;; Sprožena izjema. Nisem sure, če je ta stroga ločitev potrebna, ampak rajši jo imam, glede na poudarek v teksu
+(struct triggered (exn) #:transparent) ;; Mislim, da tega ne rabim razen za internal
 (struct handle (e1 e2 e3) #:transparent)
 
 ;; If Else
@@ -97,6 +97,158 @@
     [else #f])) ;;something went wrong, obv not 
 
 
+;; Find free variables in an expression
+(define (find-free-vars expr bound-vars)
+(match expr
+    [
+        (valof name) 
+        (if (member name bound-vars) '() (list name))]
+    [
+        (vars name val body)
+        (let* 
+            (
+                [val-vars (find-free-vars val bound-vars)]
+                [new-bound (if (list? name) (append name bound-vars) (cons name bound-vars))]
+                [body-vars (find-free-vars body new-bound)])
+            (append val-vars body-vars)
+        )
+    ]
+    [
+        (fun fname args body)
+        (let 
+            ([new-bound (append args (if (string=? fname "") bound-vars (cons fname bound-vars)))])
+            (find-free-vars body new-bound)
+        )
+    ]
+    [
+        (proc pname body)
+        (let 
+            ([new-bound (if (string=? pname "") bound-vars (cons pname bound-vars))])
+            (find-free-vars body new-bound)
+        )
+    ]
+    [  
+        (call f args)
+        (append (find-free-vars f bound-vars)
+                (apply append (map (lambda (arg) (find-free-vars arg bound-vars)) args))
+        )
+    ]
+    [
+        (.. e1 e2)
+        (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars))
+    ]
+    [
+        (trigger e) 
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (handle e1 e2 e3)
+        (append (find-free-vars e1 bound-vars)
+                (find-free-vars e2 bound-vars)
+                (find-free-vars e3 bound-vars))
+    ]
+    [
+        (if-then-else cond e1 e2)
+        (append (find-free-vars cond bound-vars)
+                (find-free-vars e1 bound-vars)
+                (find-free-vars e2 bound-vars))
+    ]
+    [
+        (add e1 e2)
+        (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars))
+    ]
+    [
+        (mul e1 e2)
+        (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars))
+    ]
+    [
+        (?leq e1 e2)
+        (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars))
+    ]
+    [
+        (?= e1 e2)
+        (append (find-free-vars e1 bound-vars) (find-free-vars e2 bound-vars))
+    ]
+    [
+        (head e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (tail e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (~ e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (?int e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (?bool e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (?.. e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (?seq e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (?empty e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (?exception e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (?all e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        (?any e)
+        (find-free-vars e bound-vars)
+    ]
+    [
+        else
+        '()
+    ]
+))
+
+;; Optimize closure environment - remove unnecessary variables
+(define (optimize-closure-env env f-args f-body current-env)
+  (let* ([free-vars (remove-duplicates (find-free-vars f-body f-args))])
+    ;; Check for undefined variables
+    (for-each
+     (lambda (var)
+       (unless (assoc var env)
+         (raise (triggered (exception "closure: undefined variable")))))
+     free-vars)
+    ;; Keep only necessary variables
+    (filter (lambda (binding) (member (car binding) free-vars)) env)))
+
+;; Extend environment with new bindings
+(define (extend-env names values env)
+  (if (null? names)
+      env
+      (cons (cons (car names) (car values))
+            (extend-env (cdr names) (cdr values) env))))
+
+;; Lookup variable in environment
+(define (lookup-env name env)
+  (let ([binding (assoc name env)])
+    (if binding
+        (cdr binding)
+        (triggered (exception "valof: undefined variable")))))
+
+;; ============================================================================
+;; MAIN INTERPRETER
+;; ============================================================================
+
 (define (fri expr env)
   (match expr
     ;; If expression is just a data type, return it
@@ -120,13 +272,13 @@
     [
         (.. e1 e2)
         (let 
-            ([v1 (fri e2 env)])
+            ([v1 (fri e1 env)])
             (if 
                 (triggered? v1)
                 v1
                 (let 
-                    ([v2 (fri e1 env)])
-                    (if (triggered? v2) v2 (.. v1 v2))
+                    ([v2 (fri e2 env)])
+                    (if (triggered? v2) v2 (.. v1 v2)) ;; here I flip them back
                 )
             )
         )
@@ -401,32 +553,45 @@
         )
     ]
     
-    [(?any e)
-     (let ([v (fri e env)])
-       (cond
-         [(triggered? v) v]
-         [(not (or (empty? v) (..? v))) (triggered (exception "?any: wrong argument type"))]
-         [(not (is-valid-seq? v)) (triggered (exception "?any: wrong argument type"))]
-         [else (check-any-true v)]))]
-    
+    [
+        (?any e)
+        (let 
+            ([v (fri e env)])
+            (cond
+                [(triggered? v) v]
+                [(not (or (empty? v) (..? v))) (triggered (exception "?any: wrong argument type"))]
+                [(not (is-valid-seq? v)) (triggered (exception "?any: wrong argument type"))]
+                [else (check-any-true v)]
+            )
+        )
+    ]
     
     ;; Variables
-    [(vars name val body)
-     (cond
-       ;; Multiple variables
-       [(list? name)
-        (let ([vals (map (lambda (v) (fri v env)) val)])
-          ;; Check for triggered exceptions in values
-          (let ([first-triggered (findf triggered? vals)])
-            (if first-triggered
-                first-triggered
-                (fri body (extend-env name vals env)))))]
-       ;; Single variable
-       [else
-        (let ([v (fri val env)])
-          (if (triggered? v)
-              v
-              (fri body (cons (cons name v) env))))])]
+    ;; I am not sure why we are using rocket lists instead of sequences we implemented, it feeels like 
+    ;; it would make more sense to do it the other way around
+    [
+        (vars name val body)
+        (cond
+            [
+                (list? name) ;; racket list
+                (let 
+                    ([vals (map (lambda (v) (fri v env)) val)]) ;; evaluates every single value in val
+                    (let 
+                        ([first-triggered (findf triggered? vals)]) ;; 
+                        (if first-triggered first-triggered (fri body (extend-env name vals env))) ;; check for any thrown errors, if there are, return
+                    )
+                )
+            ]
+            [
+                else
+                (let 
+                    ([v (fri val env)])
+                    (if (triggered? v) v (fri body (cons (cons name v) env)))
+                )
+            ]
+        )
+    ]
+        
     
     [(valof name)
      (lookup-env name env)]
