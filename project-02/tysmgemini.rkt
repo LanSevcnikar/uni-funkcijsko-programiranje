@@ -251,7 +251,7 @@
 
 (define (fri expr env)
   (match expr
-    ;; Data types - return as-is
+    ;; If expression is just a data type, return it
     [(true) (true)]
     [(false) (false)]
     [(int n) (int n)]
@@ -262,177 +262,296 @@
     [(triggered exn) (triggered exn)]
     
     ;; Sequences
-    [(.. e1 e2)
-     (let ([v1 (fri e1 env)])
-       (if (triggered? v1)
-           v1
-           (let ([v2 (fri e2 env)])
-             (if (triggered? v2)
-                 v2
-                 (.. v1 v2)))))]
+    ;; evaluate e2. If results in error, return the error
+    ;; if not, eval e1, if error, return error
+    ;; if not, return .. v1 v2
+    ;; the way the task is worded
+    ;;      "(.. e1 e2) pa zaporedje, ki ga dobimo, če rezultat evalvacije izraza e1 dodamo na začetek zaporedja, ki ga dobimo kot rezultat evalvacije izraza e2."
+    ;; makes me think I have to do this opposite order but I really am not sure
+    ;; TODO: check if this is correct
+    [
+        (.. e1 e2)
+        (let 
+            ([v1 (fri e2 env)])
+            (if 
+                (triggered? v1)
+                v1
+                (let 
+                    ([v2 (fri e1 env)])
+                    (if (triggered? v2) v2 (.. v2 v1)) ;; here I flip them back
+                )
+            )
+        )
+    ]
     
     ;; Exception handling
-    [(trigger e)
-     (let ([v (fri e env)])
-       (cond
-         [(triggered? v) v]
-         [(exception? v) (triggered v)]
-         [else (triggered (exception "trigger: wrong argument type"))]))]
-    
-    [(handle e1 e2 e3)
-     (let ([v1 (fri e1 env)])
-       (cond
-         [(triggered? v1) v1]
-         [(not (exception? v1)) (triggered (exception "handle: wrong argument type"))]
-         [else
-          (let ([v2 (fri e2 env)])
+    ;; trigger e. E must eval to an error
+    [
+        (trigger e)
+        (let 
+            ([v (fri e env)])
             (cond
-              [(triggered? v2)
-               (if (equal? v1 (triggered-exn v2))
-                   (fri e3 env)
-                   v2)]
-              [else v2]))]))]
+                [(triggered? v) v]
+                [(exception? v) (triggered v)]
+                [else (triggered (exception "trigger: wrong argument type"))]
+            )
+        )
+    ]
+    
+    ;; error handling
+    [
+        (handle e1 e2 e3)
+        (let 
+            ([v1 (fri e1 env)])
+            (cond
+                [(triggered? v1) v1] ;; Če se izraz e1 evalvira v sproženo izjemo, je rezultat, kar ta sprožena izjema.
+                [(not (exception? v1)) (triggered (exception "handle: wrong argument type"))] ;; Če se izraz e1 ne evalvira v izjemo je rezultat sprožena izjema "handle: wrong argument type" v FR.
+                [
+                    else ;; Če se izraz e2 evalvira v sprožena izjemo (ki ustreza izjemi e1) je rezultat evalviran izraz e3, drugače pa je rezultat evalviran izraz e2.
+                    (let 
+                        ([v2 (fri e2 env)])
+                        (cond
+                            [
+                                (triggered? v2)
+                                (if (equal? v1 (triggered-exn v2)) (fri e3 env) v2)
+                            ]
+                            [else v2]
+                        )
+                    )
+                ]
+            )
+        )
+    ]
     
     ;; Control flow
-    [(if-then-else cond e1 e2)
-     (let ([v-cond (fri cond env)])
-       (if (false? v-cond) (fri e2 env) (fri e1 env)))]
+    ;; Če se izraz condition evalvira v (false), potem je rezultat evalviran izraz e2, v vseh drugih primerih je rezultat evalviran izraz e1.
+    ;; This makes me worried that if statments should be ignored, but I think that surely is not true
+    ;; IMPORTAINT, CHECK IF THIS MIGHT MAKE MORE SENSE TO IGNORE ERRORS
+    ;; changing this does not cvhange then umber of correct responses but I really do think that 
+    ;; it only makes sense to always propagate errors first 
+    [
+        (if-then-else cond e1 e2)
+        (let 
+            ([v-cond (fri cond env)])
+            (if 
+                (triggered? v-cond)
+                v-cond
+                (if (false? v-cond) (fri e2 env) (fri e1 env))
+            )
+        )
+    ]
     
-    ;; Type predicates
-    [(?int e)
-     (let ([v (fri e env)])
-       (if (triggered? v) v (if (int? v) (true) (false))))]
+    ;; types have a similar problem. I am unsure if the error must propagate, the way it is worded makes me think
+    ;; that I should just be returning true or false. Hopefully the distinction between triggered and exception gives
+    ;; a good middleground
+    [
+        (?int e)
+        (let 
+            ([v (fri e env)])
+            (if (triggered? v) v (if (int? v) (true) (false)))
+        )
+    ]
     
-    [(?bool e)
-     (let ([v (fri e env)])
-       (if (triggered? v) v (if (or (true? v) (false? v)) (true) (false))))]
+    [
+        (?bool e)
+        (let 
+            ([v (fri e env)])
+            (if (triggered? v) v (if (or (true? v) (false? v)) (true) (false)))
+        )
+    ]
     
-    [(?.. e)
-     (let ([v (fri e env)])
-       (if (triggered? v) v (if (..? v) (true) (false))))]
+    [
+        (?.. e)
+        (let 
+            ([v (fri e env)])
+            (if (triggered? v) v (if (..? v) (true) (false)))
+        )
+    ]
     
-    [(?seq e)
-     (let ([v (fri e env)])
-       (cond
-         [(triggered? v) v]
-         [(empty? v) (true)]
-         [(..? v) (if (is-valid-seq? v) (true) (false))]
-         [else (false)]))]
+    [
+        (?seq e)
+        (let 
+            ([v (fri e env)])
+            (cond
+                [(triggered? v) v]
+                [(empty? v) (true)]
+                [(..? v) (if (is-valid-seq? v) (true) (false))]
+                [else (false)]
+            )
+        )
+    ]
     
-    [(?empty e)
-     (let ([v (fri e env)])
-       (if (triggered? v) v (if (empty? v) (true) (false))))]
+    [
+        (?empty e)
+        (let 
+            ([v (fri e env)])
+            (if (triggered? v) v (if (empty? v) (true) (false)))
+        )
+    ]
     
-    [(?exception e)
-     (let ([v (fri e env)])
-       (if (triggered? v) v (if (exception? v) (true) (false))))]
+    [
+        (?exception e)
+        (let 
+            ([v (fri e env)])
+            (if (triggered? v) v (if (exception? v) (true) (false)))
+        )
+    ]
     
-    ;; Arithmetic and logical operations
-    [(add e1 e2)
-     (let ([v1 (fri e1 env)])
-       (if (triggered? v1)
-           v1
-           (let ([v2 (fri e2 env)])
-             (if (triggered? v2)
-                 v2
-                 (cond
-                   ;; Boolean OR
-                   [(and (or (true? v1) (false? v1))
-                         (or (true? v2) (false? v2)))
-                    (if (or (true? v1) (true? v2)) (true) (false))]
-                   ;; Integer addition
-                   [(and (int? v1) (int? v2))
-                    (int (+ (int-n v1) (int-n v2)))]
-                   ;; Sequence concatenation
-                   [(and (or (empty? v1) (..? v1))
-                         (or (empty? v2) (..? v2)))
-                    (if (and (is-valid-seq? v1) (is-valid-seq? v2))
+    ;; Operations, a few of them really similar to 08.rkt
+    ;; ! IMPORTAINT, check if seq is defined well, I suspect that I might should be using seq! testing, not this
+    [
+        (add e1 e2)
+        ;; this susage is just handling the errors. It would be too indented otherwise and it would
+        ;; not be readable. v1 is eval, if error then error, if not then v2 is eval, if not error then op done
+        (let  ([v1 (fri e1 env)]) (if (triggered? v1) v1 (let ([v2 (fri e2 env)]) (if (triggered? v2) v2
+            (cond
+                [
+                    ;; or
+                    (and (or (true? v1) (false? v1)) (or (true? v2) (false? v2)))
+                    (if (or (true? v1) (true? v2)) (true) (false))
+                ]
+                [
+                    ;; sum
+                    (and (int? v1) (int? v2))
+                    (int (+ (int-n v1) (int-n v2)))
+                ]
+                [
+                    ;; concat
+                    (and (or (empty? v1) (..? v1)) (or (empty? v2) (..? v2)))
+                    (if 
+                        (and (is-valid-seq? v1) (is-valid-seq? v2))
                         (append-sequences v1 v2)
-                        (triggered (exception "add: wrong argument type")))]
-                   [else (triggered (exception "add: wrong argument type"))])))))]
+                        (triggered (exception "add: wrong argument type"))
+                    )
+                ]
+                [
+                    ;; error if not these 3
+                    else (triggered (exception "add: wrong argument type"))
+                ]
+        )))))
+    ]
     
-    [(mul e1 e2)
-     (let ([v1 (fri e1 env)])
-       (if (triggered? v1)
-           v1
-           (let ([v2 (fri e2 env)])
-             (if (triggered? v2)
-                 v2
-                 (cond
-                   ;; Boolean AND
-                   [(and (or (true? v1) (false? v1))
-                         (or (true? v2) (false? v2)))
-                    (if (and (true? v1) (true? v2)) (true) (false))]
-                   ;; Integer multiplication
-                   [(and (int? v1) (int? v2))
-                    (int (* (int-n v1) (int-n v2)))]
-                   [else (triggered (exception "mul: wrong argument type"))])))))]
-    
-    [(?leq e1 e2)
-     (let ([v1 (fri e1 env)])
-       (if (triggered? v1)
-           v1
-           (let ([v2 (fri e2 env)])
-             (if (triggered? v2)
-                 v2
-                 (cond
-                   ;; Boolean implication: v1 => v2 ≡ ¬v1 ∨ v2
-                   [(and (or (true? v1) (false? v1))
-                         (or (true? v2) (false? v2)))
-                    (if (or (false? v1) (true? v2)) (true) (false))]
-                   ;; Integer comparison
-                   [(and (int? v1) (int? v2))
-                    (if (<= (int-n v1) (int-n v2)) (true) (false))]
-                   ;; Sequence length comparison
-                   [(and (or (empty? v1) (..? v1))
-                         (or (empty? v2) (..? v2)))
-                    (if (and (is-valid-seq? v1) (is-valid-seq? v2))
+    ;; basically everything is done exactly the same as it was done in 08.rkt
+    ;; error handling susage is the same as before
+    [
+        (mul e1 e2)
+        (let ([v1 (fri e1 env)]) (if (triggered? v1) v1 (let ([v2 (fri e2 env)]) (if (triggered? v2) v2
+            (cond
+                [
+                    ;; and
+                    (and (or (true? v1) (false? v1)) (or (true? v2) (false? v2)))
+                    (if (and (true? v1) (true? v2)) (true) (false))
+                ]
+                    ;; mul
+                [
+                    (and (int? v1) (int? v2))
+                    (int (* (int-n v1) (int-n v2)))
+                ]
+                [
+                    ;; no seq this time
+                    else 
+                    (triggered (exception "mul: wrong argument type"))
+                ]
+        )))))
+    ]
+
+    ;; less than or equal to, note that implic for bool, normal for int, length comp for seq    
+    [
+        (?leq e1 e2)
+        (let ([v1 (fri e1 env)]) (if (triggered? v1) v1 (let ([v2 (fri e2 env)]) (if (triggered? v2) v2
+            (cond
+                [
+                    ;;impl
+                    (and (or (true? v1) (false? v1))(or (true? v2) (false? v2)))
+                    (if (or (false? v1) (true? v2)) (true) (false))
+                ]
+                [
+                    ;; comp
+                    (and (int? v1) (int? v2))
+                    (if (<= (int-n v1) (int-n v2)) (true) (false))
+                ]
+                [
+                    ;; len comp
+                    (and (or (empty? v1) (..? v1)) (or (empty? v2) (..? v2)))
+                    (if 
+                        (and (is-valid-seq? v1) (is-valid-seq? v2))
                         (if (<= (seq-length v1) (seq-length v2)) (true) (false))
-                        (triggered (exception "?leq: wrong argument type")))]
-                   [else (triggered (exception "?leq: wrong argument type"))])))))]
+                        (triggered (exception "?leq: wrong argument type"))
+                    )
+                ]
+                [else (triggered (exception "?leq: wrong argument type"))
+                ]
+        )))))
+    ]
     
-    [(?= e1 e2)
-     (let ([v1 (fri e1 env)])
-       (if (triggered? v1)
-           v1
-           (let ([v2 (fri e2 env)])
-             (if (triggered? v2)
-                 v2
-                 (if (equal? v1 v2) (true) (false))))))]
+    ;; equal
+    ;; I hope this is strong enough!!!
+    ;; might have to add new tests for this, I assume it might have some troubles checking for seq
+    [
+        (?= e1 e2)
+        (let ([v1 (fri e1 env)]) (if (triggered? v1) v1 (let ([v2 (fri e2 env)]) (if (triggered? v2) v2
+            (if (equal? v1 v2) (true) (false))
+        ))))
+    ]
     
-    ;; Sequence operations
-    [(head e)
-     (let ([v (fri e env)])
-       (cond
-         [(triggered? v) v]
-         [(..? v) (..-e1 v)]
-         [(empty? v) (triggered (exception "head: empty sequence"))]
-         [else (triggered (exception "head: wrong argument type"))]))]
+    ;; head and tail
+    ;; similar to one another
+    ;; if triggered error, propagate, if empty throw error
+    [
+        (head e)
+        (let 
+            ([v (fri e env)])
+            (cond
+                [(triggered? v) v]
+                [(..? v) (..-e1 v)]
+                [(empty? v) (triggered (exception "head: empty sequence"))]
+                [else (triggered (exception "head: wrong argument type"))]
+            )
+        )
+    ]
     
-    [(tail e)
-     (let ([v (fri e env)])
-       (cond
-         [(triggered? v) v]
-         [(..? v) (..-e2 v)]
-         [(empty? v) (triggered (exception "tail: empty sequence"))]
-         [else (triggered (exception "tail: wrong argument type"))]))]
+    [
+        (tail e)
+        (let 
+            ([v (fri e env)])
+            (cond
+                [(triggered? v) v]
+                [(..? v) (..-e2 v)]
+                [(empty? v) (triggered (exception "tail: empty sequence"))]
+                [else (triggered (exception "tail: wrong argument type"))]
+            )
+        )
+    ]
     
-    [(~ e)
-     (let ([v (fri e env)])
-       (cond
-         [(triggered? v) v]
-         [(true? v) (false)]
-         [(false? v) (true)]
-         [(int? v) (int (- (int-n v)))]
-         [else (triggered (exception "~: wrong argument type"))]))]
+    ;; Negation
+    ;; just the same as in HW plus propagation fo triggered
+    [
+        (~ e)
+        (let 
+            ([v (fri e env)])
+            (cond
+                [(triggered? v) v]
+                [(true? v) (false)]
+                [(false? v) (true)]
+                [(int? v) (int (- (int-n v)))]
+                [else (triggered (exception "~: wrong argument type"))]
+            )
+        )
+    ]
     
-    [(?all e)
-     (let ([v (fri e env)])
-       (cond
-         [(triggered? v) v]
-         [(not (or (empty? v) (..? v))) (triggered (exception "?all: wrong argument type"))]
-         [(not (is-valid-seq? v)) (triggered (exception "?all: wrong argument type"))]
-         [else (check-all-true v)]))]
+    ;; all and any, both really similar. First we test if it is of type seq
+    [
+        (?all e)
+        (let 
+            ([v (fri e env)])
+            (cond
+                [(triggered? v) v]
+                [(not (or (empty? v) (..? v))) (triggered (exception "?all: wrong argument type"))]
+                [(not (is-valid-seq? v)) (triggered (exception "?all: wrong argument type"))]
+                [else (check-all-true v)]
+            )
+        )
+    ]
     
     [(?any e)
      (let ([v (fri e env)])
