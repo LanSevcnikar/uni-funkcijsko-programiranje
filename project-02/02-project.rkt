@@ -632,12 +632,15 @@
         )
     ]
     
-    ;; 
+    ;; The interpreter does not run the code when it sees it
+    ;; It just returns the procedure
+    ;; This is so that it can be used as an argument or any other piece of data
     [
         (proc pname body)
         (proc pname body)
     ]
     
+    ;; Same here
     [
         (closure env-c f)
         (closure env-c f)
@@ -646,42 +649,51 @@
     [
         (call f-expr args-exprs)
         (let 
-            ([f-val (fri f-expr env)])
+            ([f-val (fri f-expr env)]) ;; evaluate the expression e, to see what we get
             (cond
-                [(triggered? f-val) f-val]
+                [(triggered? f-val) f-val] ;; if it is an error, we return the error, nothing more about it
                 [
                     else 
                     (let 
-                        ([arg-vals (map (lambda (arg) (fri arg env)) args-exprs)])
+                        ([arg-vals (map (lambda (arg) (fri arg env)) args-exprs)]) ;; evaluate the arguments
                         (let 
-                            ([first-triggered (findf triggered? arg-vals)])
+                            ([first-triggered (findf triggered? arg-vals)]) ;; return the first error
                             (if first-triggered first-triggered
+                                ;; HERE WE FINALLY GET TO THE ACTUAL CALLING OF THE FUNCTION
+                                ;; EVERYTHING BEFORE IT IS JUST ERROR HANDLING
                                 (cond
-                                    ;; Call closure (function with lexical scope)
                                     [
+                                        ;; Closure
                                         (closure? f-val)
                                         (let* 
                                             (
-                                                [clos-env (closure-env f-val)]
-                                                [f-def (closure-f f-val)]
-                                                [fname (fun-name f-def)]
-                                                [fargs (fun-args f-def)]
-                                                [fbody (fun-body f-def)]
+                                                [clos-env (closure-env f-val)] ;; environment of the function at the time of defining
+                                                [f-def (closure-f f-val)]      ;; function definition
+                                                [fname (fun-name f-def)]       ;; function name
+                                                [fargs (fun-args f-def)]       ;; function arguments
+                                                [fbody (fun-body f-def)]       ;; function body
                                             )
                                             (if 
-                                                (not (= (length fargs) (length arg-vals)))
-                                                (triggered (exception "call: arity mismatch"))
+                                                (not (= (length fargs) (length arg-vals)))      ;; if there are more or less args than needed
+                                                (triggered (exception "call: arity mismatch"))  ;; return error
                                                 (let* 
                                                     (
-                                                        [env-with-func (if (string=? fname "") clos-env (cons (cons fname f-val) clos-env))]
-                                                        [new-env (extend-env fargs arg-vals env-with-func)]
+                                                        [env-with-func (if 
+                                                            (string=? fname "") 
+                                                            clos-env                            ;; if function name is empty, use the closure environment
+                                                            (cons (cons fname f-val) clos-env)) ;; otherwise, add the function to the environment
+                                                        ]
+                                                        [new-env (extend-env fargs arg-vals env-with-func)] ;; extend environment with function arguments
+                                                                                                            ;; This is done last so that it overrides function name
                                                     )
-                                                    (fri fbody new-env)
+                                                    (fri fbody new-env) ;; evaluate the function body
                                                 )
                                             )
                                         )
                                     ]
-                                    ;; Call procedure (dynamic scope)
+                                    ;; Procedure
+                                    ;; I really hope I did not misunderstand that a procedure is just a fcuntion without an argument
+                                    ;; But all I have read makes me really believe that but then if that is the cvase, why define it seperately
                                     [
                                         (proc? f-val)
                                         (if 
@@ -689,11 +701,15 @@
                                             (triggered (exception "call: arity mismatch"))
                                             (let*  
                                                 (
-                                                    [pname (proc-name f-val)]
-                                                    [pbody (proc-body f-val)]
-                                                    [new-env (if (string=? pname "") env (cons (cons pname f-val) env))]
+                                                    [pname (proc-name f-val)]       ;; procedure name
+                                                    [pbody (proc-body f-val)]       ;; procedure body
+                                                    [new-env (if 
+                                                        (string=? pname "")         ;; if procedure name is empty, use the environment
+                                                        env 
+                                                        (cons (cons pname f-val) env))
+                                                    ]                               ;; environment with procedure
                                                 )
-                                                (fri pbody new-env)
+                                                (fri pbody new-env) ;; evaluate the procedure body
                                             )
                                         )
                                     ]
