@@ -220,9 +220,9 @@
 ))
 
 ;; Optimize closure environment - remove unnecessary variables
-;; This is currently giving me errors
-(define (optimize-closure-env env f-args f-body current-env)
-  (let* ([free-vars (remove-duplicates (find-free-vars f-body f-args))])
+(define (optimize-closure-env env fname f-args f-body current-env)
+  (let* ([bound (if (string=? fname "") f-args (cons fname f-args))]
+         [free-vars (remove-duplicates (find-free-vars f-body bound))])
     ;; Check for undefined variables
     (for-each
      (lambda (var)
@@ -236,22 +236,11 @@
 ;; Extend environment with new bindings
 ;; names and values have to be lists of the same length
 (define (extend-env names values env)
-    (let* 
-        (
-            [evaled-values (map (lambda (v) (if (triggered? v) v (fri v env))) values)] ;; evaluate all values first
-            [first-triggered (findf triggered? evaled-values)] ;; check if any value is already a triggered exception
-            [zipped (map cons names evaled-values)] ;; zip names and values together
-            [duplicate-name? (ormap (lambda (pair) (assoc (car pair) env)) zipped)] ;; check if any name is already in env
-            [duplicate-in-zipped? (ormap (lambda (n) (> (count (lambda (pair) (equal? n (car pair))) zipped) 1)) names)] ;; check if any name is duplicated within zipped itself
-        )
-        (cond
-            [first-triggered first-triggered]  ;; propagate error if any value triggered
-            [duplicate-name? (triggered (exception "extend-env: duplicate name"))]
-            [duplicate-in-zipped? (triggered (exception "extend-env: duplicate name"))]
-            [else (append zipped env)] ;; extend env
-        )
-    )       
-)
+  (if (null? names)
+      env
+      (cons (cons (car names) (car values))
+            (extend-env (cdr names) (cdr values) env))))
+
 
 
 ;; Lookup variable in environment
@@ -586,26 +575,279 @@
     ]
     
     ;; Variables
-    ;; I am not sure why we are using rocket lists instead of sequences we implemented, it feeels like 
-    ;; it would make more sense to do it the other way around
+    ;; I tried having a uniform function that would, in the case it is not a list, just treat it as a list of len 1 but for some reason, that did not work
+    ;; I spent way too much time trying to figure out what was happening but only now do I see that I do not need to check if all 
+    ;; variables repeat, just if the string s contains duplicated variables. I feel like an idiot but I think this works now as it should
     [
         (vars name val body)
         (cond
             [
-                (list? name) ;; racket list
-                (fri body (extend-env name val env))
+                ;; Multiple variables
+                (list? name)
+                (if
+                    (check-duplicates name)
+                    (triggered (exception "vars: duplicate identifier"))
+                    (let 
+                        ([vals (map (lambda (v) (fri v env)) val)])
+                        ;; Check for triggered exceptions in values
+                        (let 
+                            ([first-triggered (findf triggered? vals)])
+                            (if first-triggered first-triggered (fri body (extend-env name vals env)))
+                        )
+                    )
+                )    
             ]
             [
+                ;; Single variable
                 else
-                (fri (vars (list name) (list val) body) env) ;; pretend it is a racket list
+                (let 
+                    ([v (fri val env)])
+                    (if (triggered? v) v (fri body (cons (cons name v) env)))
+                )
             ]
         )
     ]
-        
     
     [
         (valof name)
-        (fri (lookup-env name env) env)
+        (lookup-env name env)
     ]
     
     ;; Functions and procedures
+    ;; The inner workings of with-handler are to me a bit of a blur but I think I do understand it
+    ;; main point is that any errors found are propagated up instead of continuing with them
+    ;; I feel like I shoould be able to write this without it but I am not exactly sure if it would be nicer
+    [
+        (fun fname args body)
+        (if 
+            (check-duplicates args)
+            (triggered (exception "fun: duplicate argument identifier"))
+            (with-handlers 
+                ([triggered? (lambda (exn) exn)])
+                (let* 
+                    ([optimized-env (optimize-closure-env env fname args body env)])
+                    (closure optimized-env (fun fname args body))
+                )
+            )
+        )
+    ]
+    
+    ;; 
+    [
+        (proc pname body)
+        (proc pname body)
+    ]
+    
+    [
+        (closure env-c f)
+        (closure env-c f)
+    ]
+    
+    [
+        (call f-expr args-exprs)
+        (let 
+            ([f-val (fri f-expr env)])
+            (cond
+                [(triggered? f-val) f-val]
+                [
+                    else 
+                    (let 
+                        ([arg-vals (map (lambda (arg) (fri arg env)) args-exprs)])
+                        (let 
+                            ([first-triggered (findf triggered? arg-vals)])
+                            (if first-triggered first-triggered
+                                (cond
+                                    ;; Call closure (function with lexical scope)
+                                    [
+                                        (closure? f-val)
+                                        (let* 
+                                            (
+                                                [clos-env (closure-env f-val)]
+                                                [f-def (closure-f f-val)]
+                                                [fname (fun-name f-def)]
+                                                [fargs (fun-args f-def)]
+                                                [fbody (fun-body f-def)]
+                                            )
+                                            (if 
+                                                (not (= (length fargs) (length arg-vals)))
+                                                (triggered (exception "call: arity mismatch"))
+                                                (let* 
+                                                    (
+                                                        [env-with-func (if (string=? fname "") clos-env (cons (cons fname f-val) clos-env))]
+                                                        [new-env (extend-env fargs arg-vals env-with-func)]
+                                                    )
+                                                    (fri fbody new-env)
+                                                )
+                                            )
+                                        )
+                                    ]
+                                    ;; Call procedure (dynamic scope)
+                                    [
+                                        (proc? f-val)
+                                        (if 
+                                            (not (null? arg-vals))
+                                            (triggered (exception "call: arity mismatch"))
+                                            (let*  
+                                                (
+                                                    [pname (proc-name f-val)]
+                                                    [pbody (proc-body f-val)]
+                                                    [new-env (if (string=? pname "") env (cons (cons pname f-val) env))]
+                                                )
+                                                (fri pbody new-env)
+                                            )
+                                        )
+                                    ]
+                                    [
+                                        else 
+                                        (triggered (exception "call: wrong argument type"))
+                                    ]
+                                )
+                            )
+                        )
+                    )
+                ]
+            )
+        )
+    ]
+    [
+        else 
+        (error "Unknown expression type" expr)
+    ]
+))
+
+;; ============================================================================
+;; HELPER FUNCTIONS FOR SEQUENCES
+;; ============================================================================
+
+;; Append two sequences
+(define (append-sequences s1 s2)
+  (cond
+    [(empty? s1) s2]
+    [(..? s1) (.. (..-e1 s1) (append-sequences (..-e2 s1) s2))]
+    [else (error "Invalid sequence")]))
+
+;; Get sequence length
+(define (seq-length s)
+  (cond
+    [(empty? s) 0]
+    [(..? s) (+ 1 (seq-length (..-e2 s)))]
+    [else 0]))
+
+;; Check if all elements in sequence are true (not false)
+(define (check-all-true s)
+  (cond
+    [(empty? s) (true)]
+    [(..? s)
+     (let ([elem (..-e1 s)])
+       (cond
+         [(not (or (true? elem) (false? elem)))
+          (triggered (exception "?all: wrong argument type"))]
+         [(false? elem) (false)]
+         [else (check-all-true (..-e2 s))]))]
+    [else (triggered (exception "?all: wrong argument type"))]))
+
+;; Check if any element in sequence is not false
+(define (check-any-true s)
+  (cond
+    [(empty? s) (false)]
+    [(..? s)
+     (let ([elem (..-e1 s)])
+       (cond
+         [(not (or (true? elem) (false? elem)))
+          (triggered (exception "?any: wrong argument type"))]
+         [(not (false? elem)) (true)]
+         [else (check-any-true (..-e2 s))]))]
+    [else (triggered (exception "?any: wrong argument type"))]))
+
+;; ============================================================================
+;; MACRO SYSTEM
+;; ============================================================================
+
+;; greater: e1 > e2 ≡ ¬(e1 ≤ e2)
+(define (greater e1 e2)
+  (~ (?leq e1 e2)))
+
+;; rev: reverse a sequence
+(define (rev seq)
+  (folding
+   (fun "" (list "x" "acc")
+        (.. (valof "x") (valof "acc")))
+   (empty)
+   seq))
+
+;; binary: convert positive integer to binary sequence
+(define (binary e)
+  (if-then-else
+   (?leq e (int 0))
+   (empty)
+   (vars "n" e
+         (vars (list "div2" "mod2")
+               (list 
+                ;; div2: n -> n / 2
+                (fun "div2" (list "x")
+                     (if-then-else (?leq (valof "x") (int 1))
+                                   (int 0)
+                                   (add (int 1)
+                                        (call (valof "div2")
+                                              (list (add (valof "x") (int -2)))))))
+                ;; mod2: n -> n % 2
+                (fun "mod2" (list "x")
+                     (if-then-else (?leq (valof "x") (int 1))
+                                   (valof "x")
+                                   (call (valof "mod2")
+                                         (list (add (valof "x") (int -2)))))))
+               (vars "helper"
+                     (fun "helper" (list "num")
+                          (if-then-else
+                           (?leq (valof "num") (int 0))
+                           (empty)
+                           (.. (call (valof "mod2") (list (valof "num")))
+                               (call (valof "helper")
+                                     (list (call (valof "div2") (list (valof "num"))))))))
+                     (rev (call (valof "helper") (list (valof "n")))))))))
+
+;; mapping: map function over sequence
+(define (mapping f seq)
+  (vars "f" f
+        (vars "map-helper"
+              (fun "map-helper" (list "s")
+                   (if-then-else
+                    (?empty (valof "s"))
+                    (empty)
+                    (.. (call (valof "f") (list (head (valof "s"))))
+                        (call (valof "map-helper") (list (tail (valof "s")))))))
+              (call (valof "map-helper") (list seq)))))
+
+;; filtering: filter sequence by predicate
+(define (filtering f seq)
+  (vars "f" f
+        (vars "filter-helper"
+              (fun "filter-helper" (list "s")
+                   (if-then-else
+                    (?empty (valof "s"))
+                    (empty)
+                    (vars "elem" (head (valof "s"))
+                          (vars "rest" (call (valof "filter-helper")
+                                             (list (tail (valof "s"))))
+                                (if-then-else
+                                 (call (valof "f") (list (valof "elem")))
+                                 (.. (valof "elem") (valof "rest"))
+                                 (valof "rest"))))))
+              (call (valof "filter-helper") (list seq)))))
+
+;; folding: left fold over sequence
+(define (folding f init seq)
+  (vars "f" f
+        (vars "init" init
+              (vars "fold-helper"
+                    (fun "fold-helper" (list "acc" "s")
+                         (if-then-else
+                          (?empty (valof "s"))
+                          (valof "acc")
+                          (call (valof "fold-helper")
+                                (list (call (valof "f")
+                                            (list (head (valof "s"))
+                                                  (valof "acc")))
+                                      (tail (valof "s"))))))
+                    (call (valof "fold-helper")
+                          (list (valof "init") seq))))))

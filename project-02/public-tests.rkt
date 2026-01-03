@@ -702,10 +702,3 @@
    ))
 
 (run-tests all-tests)
-
-
-(fri(vars "a" (int 5)
-             (vars (list "b" "c")
-                   (list (int 2)
-                         (fun "" (list) (valof "a")))
-                   (call (valof "c") (list)))) null)
