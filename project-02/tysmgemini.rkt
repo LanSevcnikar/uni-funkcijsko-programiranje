@@ -272,13 +272,13 @@
     [
         (.. e1 e2)
         (let 
-            ([v1 (fri e2 env)])
+            ([v1 (fri e1 env)])
             (if 
                 (triggered? v1)
                 v1
                 (let 
-                    ([v2 (fri e1 env)])
-                    (if (triggered? v2) v2 (.. v2 v1)) ;; here I flip them back
+                    ([v2 (fri e2 env)])
+                    (if (triggered? v2) v2 (.. v1 v2)) ;; here I flip them back
                 )
             )
         )
