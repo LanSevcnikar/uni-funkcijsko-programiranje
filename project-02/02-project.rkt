@@ -220,6 +220,7 @@
 ))
 
 ;; Optimize closure environment - remove unnecessary variables
+;; This is currently giving me errors
 (define (optimize-closure-env env f-args f-body current-env)
   (let* ([free-vars (remove-duplicates (find-free-vars f-body f-args))])
     ;; Check for undefined variables
@@ -574,27 +575,28 @@
         (cond
             [
                 (list? name) ;; racket list
-                (let 
-                    ([vals (map (lambda (v) (fri v env)) val)]) ;; evaluates every single value in val
-                    (let 
-                        ([first-triggered (findf triggered? vals)]) ;; 
-                        (if first-triggered first-triggered (fri body (extend-env name vals env))) ;; check for any thrown errors, if there are, return
-                    )
+                (let*
+                    (
+                        [vals (map (lambda (v) (fri v env)) val)]
+                        [first-triggered (findf triggered? vals)]
+                        [pairs (map cons name vals)]
+                        [new-env (append pairs env)]
+                    ) ;; evaluates every single value in val
+                    (if first-triggered first-triggered (fri body new-env))
                 )
             ]
             [
                 else
-                (let 
-                    ([v (fri val env)])
-                    (if (triggered? v) v (fri body (cons (cons name v) env)))
-                )
+                (fri (vars (list name) (list val) body) env) ;; pretend it is a racket list
             ]
         )
     ]
         
     
-    [(valof name)
-     (lookup-env name env)]
+    [
+        (valof name)
+        (lookup-env name env)
+    ]
     
     ;; Functions and procedures
     [(fun fname args body)
@@ -771,3 +773,10 @@
                                       (tail (valof "s"))))))
                     (call (valof "fold-helper")
                           (list (valof "init") seq))))))
+
+
+;; Test the expantion of vars
+(displayln (fri 
+    (vars "a" (int 5)
+        (vars (list "b" "c") (list (int 2) (fun "" (list) (valof "a")))
+            (call (valof "c") (list)))) null))
