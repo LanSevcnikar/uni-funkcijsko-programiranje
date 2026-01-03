@@ -232,23 +232,41 @@
     ;; Keep only necessary variables
     (filter (lambda (binding) (member (car binding) free-vars)) env)))
 
+
 ;; Extend environment with new bindings
+;; names and values have to be lists of the same length
 (define (extend-env names values env)
-  (if (null? names)
-      env
-      (cons (cons (car names) (car values))
-            (extend-env (cdr names) (cdr values) env))))
+    (let* 
+        (
+            [evaled-values (map (lambda (v) (if (triggered? v) v (fri v env))) values)] ;; evaluate all values first
+            [first-triggered (findf triggered? evaled-values)] ;; check if any value is already a triggered exception
+            [zipped (map cons names evaled-values)] ;; zip names and values together
+            [duplicate-name? (ormap (lambda (pair) (assoc (car pair) env)) zipped)] ;; check if any name is already in env
+            [duplicate-in-zipped? (ormap (lambda (n) (> (count (lambda (pair) (equal? n (car pair))) zipped) 1)) names)] ;; check if any name is duplicated within zipped itself
+        )
+        (cond
+            [first-triggered first-triggered]  ;; propagate error if any value triggered
+            [duplicate-name? (triggered (exception "extend-env: duplicate name"))]
+            [duplicate-in-zipped? (triggered (exception "extend-env: duplicate name"))]
+            [else (append zipped env)] ;; extend env
+        )
+    )       
+)
+
 
 ;; Lookup variable in environment
 (define (lookup-env name env)
-  (let ([binding (assoc name env)])
-    (if binding
-        (cdr binding)
-        (triggered (exception "valof: undefined variable")))))
+    (let 
+        (
+            [binding (assoc name env)]
+        )
+        (if binding
+            (cdr binding)
+            (triggered (exception "valof: undefined variable"))
+        )
+    )
+)
 
-;; ============================================================================
-;; MAIN INTERPRETER
-;; ============================================================================
 
 (define (fri expr env)
   (match expr
@@ -575,15 +593,7 @@
         (cond
             [
                 (list? name) ;; racket list
-                (let*
-                    (
-                        [vals (map (lambda (v) (fri v env)) val)]
-                        [first-triggered (findf triggered? vals)]
-                        [pairs (map cons name vals)]
-                        [new-env (append pairs env)]
-                    ) ;; evaluates every single value in val
-                    (if first-triggered first-triggered (fri body new-env))
-                )
+                (fri body (extend-env name val env))
             ]
             [
                 else
