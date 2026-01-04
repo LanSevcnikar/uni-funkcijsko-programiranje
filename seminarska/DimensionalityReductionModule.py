@@ -1,15 +1,27 @@
 import numpy as np
+from sklearn.decomposition import PCA, TruncatedSVD
+from sklearn.manifold import TSNE
 
 class DimensionalityReducer:
     """
-    Handles dimensionality reduction using PCA (Principal Component Analysis).
+    Handles dimensionality reduction using various methods:
+    - PCA (Principal Component Analysis)
+    - SVD (Singular Value Decomposition)
+    - t-SNE (t-Distributed Stochastic Neighbor Embedding)
     """
-    def __init__(self):
-        pass
+    def __init__(self, method: str = 'PCA'):
+        """
+        Initialize the reducer with a specific method.
+        
+        Args:
+            method: One of 'PCA', 'SVD', 't-distribution' (or 't-SNE').
+                    Defaults to 'PCA'.
+        """
+        self.method = method
 
     def reduce(self, data: np.ndarray, target_dim: int) -> np.ndarray:
         """
-        Reduces the dimensionality of the input data to target_dim using PCA via SVD.
+        Reduces the dimensionality of the input data to target_dim.
         
         Args:
             data: Numpy array of shape (N, D) where N is number of samples and D is original dimension.
@@ -25,30 +37,22 @@ class DimensionalityReducer:
             print(f"Target dimension {target_dim} >= input dimension {data.shape[1]}. Returning original data.")
             return data
 
-        # 1. Center the data (subtract mean)
-        mean = np.mean(data, axis=0)
-        centered_data = data - mean
+        method_key = self.method.lower()
 
-        # 2. Compute SVD
-        # U: (N, N), S: (min(N, D),), Vt: (D, D)
-        # We want the top components from Vt (which are the principal axes)
-        # Or we can just project using U * S
-        # full_matrices=False makes U (N, K) and Vt (K, D) where K = min(N, D)
-        try:
-            U, S, Vt = np.linalg.svd(centered_data, full_matrices=False)
-        except np.linalg.LinAlgError as e:
-            print(f"SVD convergence failed: {e}")
-            return np.zeros((data.shape[0], target_dim))
-
-        # 3. Project data
-        # The principal components are the rows of Vt.
-        # We take the first 'target_dim' rows of Vt (top principal components).
-        # Vt is (K, D), so Vt[:target_dim, :] is (target_dim, D).
-        # Transpose to get (D, target_dim).
-        components = Vt[:target_dim, :].T
-        
-        # Project centered data onto components
-        # (N, D) dot (D, target_dim) -> (N, target_dim)
-        reduced_data = np.dot(centered_data, components)
-        
-        return reduced_data
+        if method_key == 'pca':
+            reducer = PCA(n_components=target_dim)
+            return reducer.fit_transform(data)
+            
+        elif method_key == 'svd':
+            # TruncatedSVD is preferred for sparse matrices, but works for dense too.
+            reducer = TruncatedSVD(n_components=target_dim)
+            return reducer.fit_transform(data)
+            
+        elif method_key in ['t-distribution', 't-sne']:
+            # t-SNE usually is for 2 or 3 dimensions.
+            # method='exact' is slower but more accurate, 'barnes_hut' is default (O(NlogN))
+            reducer = TSNE(n_components=target_dim, init='random', learning_rate='auto')
+            return reducer.fit_transform(data)
+            
+        else:
+            raise ValueError(f"Unknown dimensionality reduction method: {self.method}")
