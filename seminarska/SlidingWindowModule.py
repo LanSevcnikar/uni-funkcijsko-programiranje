@@ -86,51 +86,36 @@ class SlidingWindow:
         for i in range(min(n, len(self.windowed_data))):
             print(f"Point {i}: {self.windowed_data[i]}")
 
-    def plot(self, d: int = 2):
-        """
-        Plots the embedded signal reduced to d dimensions.
-        Args:
-            d: Target dimension (2 or 3).
-        """
-        if not self.windowed_data:
-            print("No data to plot.")
-            return
+    def plot(self, d: int = 2, method: str = "pca"):
+        fig, ax = plt.subplots(figsize=(10, 8))
+        self.plot_on_ax(ax, d=d, method=method)
+        plt.show()
 
-        # Extract vectors for reduction
+
+    def plot_on_ax(self, ax, d: int = 2, method: str = "pca"):
+        if not self.windowed_data:
+            raise ValueError("No data to plot.")
+
         vectors = np.array([v for _, v, _ in self.windowed_data])
         colors = [c for _, _, c in self.windowed_data]
-        
-        # Reduce dimensionality
-        reducer = DimensionalityReducer()
-        reduced_vectors = reducer.reduce(vectors, d)
-        
-        if reduced_vectors.size == 0:
-            print("Reduction failed or returned empty.")
-            return
 
-        # Plot
-        fig = plt.figure(figsize=(10, 8))
-        
-        if d == 2:
-            plt.scatter(reduced_vectors[:, 0], reduced_vectors[:, 1], c=colors, s=20, edgecolors='none')
-            plt.xlabel("Component 1")
-            plt.ylabel("Component 2")
-            plt.title(f"Sliding Window Embedding (M={self.M}, tau={self.tau}) -> 2D PCA")
-            
-        elif d == 3:
-            ax = fig.add_subplot(111, projection='3d')
-            ax.scatter(reduced_vectors[:, 0], reduced_vectors[:, 1], reduced_vectors[:, 2], c=colors, s=20, edgecolors='none')
-            ax.set_xlabel("Component 1")
-            ax.set_ylabel("Component 2")
-            ax.set_zlabel("Component 3")
-            plt.title(f"Sliding Window Embedding (M={self.M}, tau={self.tau}) -> 3D PCA")
-            
-        else:
-            print(f"Plotting for d={d} is not supported (only 2 or 3).")
-            return
-            
-        plt.grid(True, alpha=0.3)
-        plt.show()
+        reducer = DimensionalityReducer(method=method)
+        reduced = reducer.reduce(vectors, target_dim=d)
+
+        if d != 2:
+            raise ValueError("Only d=2 supported for combined plot")
+
+        ax.scatter(
+            reduced[:, 0],
+            reduced[:, 1],
+            c=colors,
+            s=20
+        )
+        ax.set_title("Sliding Window Embedding")
+        ax.set_xlabel("Component 1")
+        ax.set_ylabel("Component 2")
+        ax.grid(True, alpha=0.3)
+
 
     def get_distance_matrix(self):
         """

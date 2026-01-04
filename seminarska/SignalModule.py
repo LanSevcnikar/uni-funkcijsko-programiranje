@@ -31,22 +31,24 @@ class Signal:
         return self._colors
 
     def plot(self, title: str = "Signal"):
-        """
-        Plots the signal using matplotlib.
-        """
-        if not self.data:
-            print("No data to plot.")
-            return
-
-        plt.figure(figsize=(10, 6))
-        # Scatter plot with bigger points (s=40)
-        plt.scatter(self._times, self._values, c=self._colors, s=40, edgecolors='none')
-        
-        plt.title(title)
-        plt.xlabel("Time")
-        plt.ylabel("Value")
-        plt.grid(True, alpha=0.3)
+        fig, ax = plt.subplots(figsize=(10, 6))
+        self.plot_on_ax(ax, title)
         plt.show()
+
+    def plot_on_ax(self, ax, title: str = "Signal"):
+        if self.data is None or len(self.data) == 0:
+            raise ValueError("No data to plot.")
+
+        ax.scatter(
+            self._times,
+            self._values,
+            c=self._colors,
+            s=40
+        )
+        ax.set_title(title)
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Value")
+        ax.grid(True, alpha=0.3)
 
     def save_to_txt(self, filename: str):
         """
