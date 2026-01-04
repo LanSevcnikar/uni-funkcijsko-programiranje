@@ -707,49 +707,62 @@
     ]
 ))
 
-;; ============================================================================
-;; HELPER FUNCTIONS FOR SEQUENCES
-;; ============================================================================
-
-;; Append two sequences
+;;Funkcije, ki pomagajo pri sequences
+;; append two
 (define (append-sequences s1 s2)
-  (cond
-    [(empty? s1) s2]
-    [(..? s1) (.. (..-e1 s1) (append-sequences (..-e2 s1) s2))]
-    [else (error "Invalid sequence")]))
+    (cond
+        [(empty? s1) s2]
+        [(..? s1) (.. (..-e1 s1) (append-sequences (..-e2 s1) s2))]
+        [else (error "Invalid sequence")]
+    )
+)
 
-;; Get sequence length
+;; seq length
 (define (seq-length s)
-  (cond
-    [(empty? s) 0]
-    [(..? s) (+ 1 (seq-length (..-e2 s)))]
-    [else 0]))
+    (cond
+        [(empty? s) 0]
+        [(..? s) (+ 1 (seq-length (..-e2 s)))]
+        [else 0]
+    )
+)
 
-;; Check if all elements in sequence are true (not false)
+;; check if all elements in sequence are true (not false)
 (define (check-all-true s)
-  (cond
-    [(empty? s) (true)]
-    [(..? s)
-     (let ([elem (..-e1 s)])
-       (cond
-         [(not (or (true? elem) (false? elem)))
-          (triggered (exception "?all: wrong argument type"))]
-         [(false? elem) (false)]
-         [else (check-all-true (..-e2 s))]))]
-    [else (triggered (exception "?all: wrong argument type"))]))
+    (cond
+        [(empty? s) (true)]
+        [
+            (..? s)
+            (let 
+                ([elem (..-e1 s)])
+                (cond
+                    [(not (or (true? elem) (false? elem))) (triggered (exception "?all: wrong argument type"))]
+                    [(false? elem) (false)]
+                    [else (check-all-true (..-e2 s))]
+                )
+            )
+        ]
+        [else (triggered (exception "?all: wrong argument type"))]
+    )
+)
 
-;; Check if any element in sequence is not false
+;; check if any element in sequence is not false
 (define (check-any-true s)
-  (cond
-    [(empty? s) (false)]
-    [(..? s)
-     (let ([elem (..-e1 s)])
-       (cond
-         [(not (or (true? elem) (false? elem)))
-          (triggered (exception "?any: wrong argument type"))]
-         [(not (false? elem)) (true)]
-         [else (check-any-true (..-e2 s))]))]
-    [else (triggered (exception "?any: wrong argument type"))]))
+    (cond
+        [(empty? s) (false)]
+        [
+            (..? s)
+            (let 
+                ([elem (..-e1 s)])
+                (cond
+                [(not (or (true? elem) (false? elem))) (triggered (exception "?any: wrong argument type"))]
+                [(not (false? elem)) (true)]
+                [else (check-any-true (..-e2 s))]
+                )
+            )
+        ]
+        [else (triggered (exception "?any: wrong argument type"))]
+    )
+)
 
 ;; ============================================================================
 ;; MACRO SYSTEM
@@ -757,7 +770,8 @@
 
 ;; greater: e1 > e2 ≡ ¬(e1 ≤ e2)
 (define (greater e1 e2)
-  (~ (?leq e1 e2)))
+  (~ (?leq e1 e2))
+)
 
 ;; rev: reverse a sequence
 (define (rev seq)
@@ -765,7 +779,8 @@
    (fun "" (list "x" "acc")
         (.. (valof "x") (valof "acc")))
    (empty)
-   seq))
+   seq)
+)
 
 ;; binary: convert positive integer to binary sequence
 (define (binary e)
