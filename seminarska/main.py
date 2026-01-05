@@ -12,8 +12,12 @@ def plot_persistences_dim1_on_ax(data: np.ndarray, ax):
     births, deaths = data
     persistences = deaths - births
 
-    longest_idx = np.argmax(persistences)
-    longest_persistence = persistences[longest_idx]
+    try:
+        longest_idx = np.argmax(persistences)
+        longest_persistence = persistences[longest_idx]
+    except ValueError:
+        longest_idx = 0
+        longest_persistence = 0
 
     y_positions = np.arange(len(births))
 
@@ -109,11 +113,11 @@ M = {M}, τ = {tau}, reduction = {method.upper()}
 if __name__ == "__main__":
     main(
         function_name="sin",
-        function=lambda x: np.sin(x),
+        function=lambda x: x,
         start_time=0,
         end_time=20,
-        step=0.05,
-        noise=0.11,
+        step=0.02,
+        noise=0.1,
         M=20,
         tau=0.31,
         method="pca"

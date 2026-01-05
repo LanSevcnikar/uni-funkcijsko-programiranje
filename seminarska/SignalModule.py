@@ -21,6 +21,31 @@ class Signal:
             self._values = np.array([])
             self._colors = np.array([])
 
+    def normalize(self, number_of_points: int | None = None):
+        # this form of norm keeps furier transform properties
+        if number_of_points is None:
+            number_of_points = len(self.data)
+
+        total_number_of_points = self._values.size
+        step_length = total_number_of_points // number_of_points
+        
+        subsampled_times = self._times[::step_length][:number_of_points]
+        subsampled_values = self._values[::step_length][:number_of_points]
+        subsampled_colors = self._colors[::step_length][:number_of_points]
+
+        times_mean = np.mean(subsampled_times)
+        times_std = np.std(subsampled_times)
+        subsampled_times = (subsampled_times - times_mean) / times_std
+
+        values_mean = np.mean(subsampled_values)
+        values_std = np.std(subsampled_values)
+        subsampled_values = (subsampled_values - values_mean) / values_std
+
+        self.data = list(zip(subsampled_times, subsampled_values, subsampled_colors))
+        self._times = subsampled_times
+        self._values = subsampled_values
+        self._colors = subsampled_colors
+
     def get_times(self):
         return self._times
 
@@ -88,6 +113,7 @@ class Signal:
         except Exception as e:
             print(f"Error reading file: {e}")
             return cls([])
+
 
 class SignalGenerator:
     """

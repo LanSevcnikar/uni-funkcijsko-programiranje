@@ -764,22 +764,67 @@
     )
 )
 
-;; ============================================================================
-;; MACRO SYSTEM
-;; ============================================================================
-
-;; greater: e1 > e2 ≡ ¬(e1 ≤ e2)
+;; Something is greater if it is not less than or equal to
 (define (greater e1 e2)
   (~ (?leq e1 e2))
 )
 
-;; rev: reverse a sequence
+;; Folding
+;; f: a function that takes as input two elements and outputs a third
+;; init: initial value
+;; seq: sequence to fold over
+
+;; fold-helper: the temp function intnernally that allows for recursion
+
+(define (folding f init seq)
+    (vars "f" f
+        (vars "init" init
+            (vars "fold-helper"
+                (fun "fold-helper" (list "acc" "s")
+                    ;; FOLD HELPER: takes as input the combined balue and the sequence, that is left
+                    ;; if the sequence is empty, return the accumulated value
+                    ;; else, call fold-helper with the new accumulated value and the tail of the sequence
+                    (if-then-else
+                        (?empty (valof "s"))
+                        (valof "acc")
+                        (call 
+                            (valof "fold-helper")
+                            (list 
+                                (call 
+                                    (valof "f")
+                                    (list (head (valof "s")) (valof "acc"))
+                                ) ;; f (head s, acc) -> acc
+                                (tail (valof "s"))
+                            )
+                        )
+                    )
+                )
+                ;; just call the helper function and that is it
+                (call 
+                    (valof "fold-helper")
+                    (list (valof "init") seq)
+                )
+            )
+        )
+    )
+)
+
+
+;; reversing a sequence
+;; basically just unstring it and string it back together
+;; because we take from the front and build back first, that is the same as reversing it
 (define (rev seq)
-  (folding
-   (fun "" (list "x" "acc")
-        (.. (valof "x") (valof "acc")))
-   (empty)
-   seq)
+    (
+        folding
+        (
+            fun 
+            "" 
+            (list "x" "acc")
+            (.. (valof "x") (valof "acc"))
+        )
+        (empty)
+        seq
+    )
 )
 
 ;; binary: convert positive integer to binary sequence
@@ -842,19 +887,3 @@
                                  (valof "rest"))))))
               (call (valof "filter-helper") (list seq)))))
 
-;; folding: left fold over sequence
-(define (folding f init seq)
-  (vars "f" f
-        (vars "init" init
-              (vars "fold-helper"
-                    (fun "fold-helper" (list "acc" "s")
-                         (if-then-else
-                          (?empty (valof "s"))
-                          (valof "acc")
-                          (call (valof "fold-helper")
-                                (list (call (valof "f")
-                                            (list (head (valof "s"))
-                                                  (valof "acc")))
-                                      (tail (valof "s"))))))
-                    (call (valof "fold-helper")
-                          (list (valof "init") seq))))))
