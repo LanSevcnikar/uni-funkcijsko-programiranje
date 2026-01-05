@@ -117,6 +117,18 @@ class SlidingWindow:
         ax.set_ylabel("Component 2")
         ax.grid(True, alpha=0.3)
 
+    def downscale_sp_space(self, dimension: int | None = None, method: str = "pca"):
+        if dimension is None:
+            return
+            
+        reducer = DimensionalityReducer(method=method)
+        wd_time = np.array([w[0] for w in self.windowed_data])
+        wd_vector = np.array([w[1] for w in self.windowed_data])
+        wd_color = np.array([w[2] for w in self.windowed_data])
+        
+        reduced = reducer.reduce(wd_vector, target_dim=dimension)
+
+        self.windowed_data = list(zip(wd_time, reduced, wd_color))
 
     def get_distance_matrix(self):
         # Stack all vectors into a single (N, D) array
