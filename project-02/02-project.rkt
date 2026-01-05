@@ -819,8 +819,8 @@
         (
             fun 
             "" 
-            (list "x" "acc")
-            (.. (valof "x") (valof "acc"))
+            (list "x" "xs")
+            (.. (valof "x") (valof "xs"))
         )
         (empty)
         seq
@@ -829,61 +829,115 @@
 
 ;; binary: convert positive integer to binary sequence
 (define (binary e)
-  (if-then-else
-   (?leq e (int 0))
-   (empty)
-   (vars "n" e
-         (vars (list "div2" "mod2")
-               (list 
-                ;; div2: n -> n / 2
-                (fun "div2" (list "x")
-                     (if-then-else (?leq (valof "x") (int 1))
-                                   (int 0)
-                                   (add (int 1)
-                                        (call (valof "div2")
-                                              (list (add (valof "x") (int -2)))))))
-                ;; mod2: n -> n % 2
-                (fun "mod2" (list "x")
-                     (if-then-else (?leq (valof "x") (int 1))
-                                   (valof "x")
-                                   (call (valof "mod2")
-                                         (list (add (valof "x") (int -2)))))))
-               (vars "helper"
-                     (fun "helper" (list "num")
-                          (if-then-else
-                           (?leq (valof "num") (int 0))
-                           (empty)
-                           (.. (call (valof "mod2") (list (valof "num")))
-                               (call (valof "helper")
-                                     (list (call (valof "div2") (list (valof "num"))))))))
-                     (rev (call (valof "helper") (list (valof "n")))))))))
+    (if-then-else
+        (?leq e (int 0))
+        (empty)
+        (vars "n" e
+            (vars 
+                ;; just add functions mod and div, so that no racket functions are actuallz called
+                (list "div2" "mod2")
+                (list 
+                    ;; div
+                    ;; subtract 2 untill we get to 0,then recursively add back 1 at the end
+                    ;; x -= 2 
+                    ;; rec (x)
+                    ;; x += 1
+                    (fun "div2" (list "x")
+                        (if-then-else 
+                            (?leq (valof "x") (int 1))
+                            (int 0) ;; round down
+                            (add 
+                                (int 1) 
+                                (call 
+                                    (valof "div2") 
+                                    (list (add (valof "x") (int -2)))
+                                )
+                            )
+                        )
+                    )
+                    ;; similar, just that we either stop at 1 or at 0 at the end and now we return all the way back up
+                    (fun "mod2" (list "x")
+                        (if-then-else 
+                            (?leq (valof "x") (int 1))
+                            (valof "x")
+                            (call 
+                                (valof "mod2")
+                                (list (add (valof "x") (int -2)))
+                            )
+                        )
+                    )
+                )
+                ;; we cannot define it next to all the others because of the dependaqncy
+                (vars "helper"
+                    (fun "helper" (list "num")
+                        (if-then-else
+                            ;; if we are at the end of the list, return the end of list element, otherwise join together the mod and the rec what remains
+                            (?leq (valof "num") (int 0))
+                            (empty)
+                            (.. 
+                                (call (valof "mod2") (list (valof "num")))
+                                (call (valof "helper") (list (call (valof "div2") (list (valof "num")))))
+                            )
+                        )
+                    )
+                    (
+                        ;; just have to reverse it in the end (I think)
+                        rev 
+                        (call (valof "helper") (list (valof "n")))
+                    )
+                )
+            )
+        )
+    )
+)
 
-;; mapping: map function over sequence
+;; just map function onto sequence
+;; if we reached the end, just end it, otherwise join together the f (value plus what remains of the sequence)
 (define (mapping f seq)
-  (vars "f" f
+    (vars "f" f
         (vars "map-helper"
-              (fun "map-helper" (list "s")
-                   (if-then-else
+            (fun "map-helper" (list "s")
+                (if-then-else
                     (?empty (valof "s"))
                     (empty)
-                    (.. (call (valof "f") (list (head (valof "s"))))
-                        (call (valof "map-helper") (list (tail (valof "s")))))))
-              (call (valof "map-helper") (list seq)))))
+                    (.. 
+                        (call (valof "f") (list (head (valof "s"))))
+                        (call (valof "map-helper") (list (tail (valof "s"))))
+                    )
+                )
+            )
+            (call (valof "map-helper") (list seq))
+        )
+    )
+)
 
-;; filtering: filter sequence by predicate
+;; filtering
+;; if we reached the end, just end it, otherwise join together the f (value plus what remains of the sequence)
+;; if the value is true, join it with the rest, otherwise just return the rest
 (define (filtering f seq)
-  (vars "f" f
+    (vars "f" f
         (vars "filter-helper"
-              (fun "filter-helper" (list "s")
-                   (if-then-else
+            (fun "filter-helper" (list "s")
+                (if-then-else
                     (?empty (valof "s"))
                     (empty)
                     (vars "elem" (head (valof "s"))
-                          (vars "rest" (call (valof "filter-helper")
-                                             (list (tail (valof "s"))))
-                                (if-then-else
-                                 (call (valof "f") (list (valof "elem")))
-                                 (.. (valof "elem") (valof "rest"))
-                                 (valof "rest"))))))
-              (call (valof "filter-helper") (list seq)))))
+                        (vars "rest" 
+                            (call 
+                                (valof "filter-helper")
+                                (list (tail (valof "s")))
+                            )
+                            (if-then-else
+                                (call (valof "f") (list (valof "elem")))
+                                (.. (valof "elem") (valof "rest"))
+                                (valof "rest")
+                            )
+                        )
+                    )
+                )
+            )
+            (call (valof "filter-helper") (list seq))
+        )
+    )
+)
 
