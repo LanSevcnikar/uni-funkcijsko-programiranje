@@ -119,19 +119,17 @@ class SlidingWindow:
 
 
     def get_distance_matrix(self):
-        """
-            NOTE
-            1. This code is super unoptimized
-            2. The diagonals being set to 0 is unnecessary, it should be that already
-            I do not feel like it atm
-        """
-        matrix = np.zeros((len(self.windowed_data), len(self.windowed_data)))
-        for i in range(len(self.windowed_data)):
-            for j in range(len(self.windowed_data)):
-                matrix[i][j] = np.linalg.norm(self.windowed_data[i][1] - self.windowed_data[j][1])
-        for i in range(len(matrix)):
-            matrix[i][i] = 0
+        # Stack all vectors into a single (N, D) array
+        X = np.stack([w[1] for w in self.windowed_data])  # shape: (N, D)
+
+        # Compute pairwise differences using broadcasting
+        diff = X[:, None, :] - X[None, :, :]              # shape: (N, N, D)
+
+        # Euclidean distance
+        matrix = np.linalg.norm(diff, axis=-1)            # shape: (N, N)
+
         return matrix
+
 
 if __name__ == "__main__":
     print("Verifying SlidingWindowModule...")

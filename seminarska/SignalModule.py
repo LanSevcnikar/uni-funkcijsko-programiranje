@@ -67,6 +67,13 @@ class Signal:
         if self.data is None or len(self.data) == 0:
             raise ValueError("No data to plot.")
 
+        ax.plot(
+            self._times,
+            self._values,
+            c="tab:gray",
+            alpha=0.5,
+            linewidth=0.5
+        )
         ax.scatter(
             self._times,
             self._values,
