@@ -29,6 +29,9 @@ class Signal:
         total_number_of_points = self._values.size
         step_length = total_number_of_points // number_of_points
         
+        if total_number_of_points < number_of_points:
+            raise ValueError("Number of points is greater than the total number of points in the signal.")
+        
         subsampled_times = self._times[::step_length][:number_of_points]
         subsampled_values = self._values[::step_length][:number_of_points]
         subsampled_colors = self._colors[::step_length][:number_of_points]

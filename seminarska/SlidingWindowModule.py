@@ -69,6 +69,7 @@ class SlidingWindow:
         
         # Let's just iterate to store in the list format requested
         # "final array is the array of trouples time, vector, colour"
+        # THIS COULD BE DONE FASTER
         self.windowed_data = []
         for i, t in enumerate(valid_times):
             self.windowed_data.append((t, vectors[i], colors[i]))
