@@ -103,19 +103,34 @@ class SlidingWindow:
         reducer = DimensionalityReducer(method=method)
         reduced = reducer.reduce(vectors, target_dim=d)
 
-        if d != 2:
-            raise ValueError("Only d=2 supported for combined plot")
+#        if d != 2:
+ #           raise ValueError("Only d=2 supported for combined plot")
 
-        ax.scatter(
+        if d == 3:          
+            ax.scatter(
+                reduced[:, 0],
+                reduced[:, 1],
+                reduced[:, 2],
+                c=colors,
+                s=20
+            )
+            ax.set_title("Sliding Window Embedding")
+            ax.set_xlabel("Component 1")
+            ax.set_ylabel("Component 2")
+            ax.set_zlabel("Component 3")
+            ax.grid(True, alpha=0.3)
+            
+        else:
+            ax.scatter(
             reduced[:, 0],
             reduced[:, 1],
             c=colors,
             s=20
-        )
-        ax.set_title("Sliding Window Embedding")
-        ax.set_xlabel("Component 1")
-        ax.set_ylabel("Component 2")
-        ax.grid(True, alpha=0.3)
+            )
+            ax.set_title("Sliding Window Embedding")
+            ax.set_xlabel("Component 1")
+            ax.set_ylabel("Component 2")
+            ax.grid(True, alpha=0.3)
 
     def downscale_sp_space(self, dimension: int | None = None, method: str = "pca"):
         if dimension is None:
